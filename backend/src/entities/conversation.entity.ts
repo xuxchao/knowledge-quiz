@@ -7,6 +7,9 @@ export class Conversation {
   id: string;
 
   @Column({ type: 'varchar', length: 255, nullable: true })
+  userId: string;
+
+  @Column({ type: 'varchar', length: 255, nullable: true })
   title: string;
 
   @Column({ type: 'json', nullable: true })

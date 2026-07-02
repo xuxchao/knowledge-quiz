@@ -5,10 +5,13 @@ import * as tencentcloud from 'tencentcloud-sdk-nodejs';
 const AsrClient = tencentcloud.asr.v20190614.Client;
 const TtsClient = tencentcloud.tts.v20190823.Client;
 
+type AsrClientType = typeof AsrClient.prototype;
+type TtsClientType = typeof TtsClient.prototype;
+
 @Injectable()
 export class SpeechService {
-  private asrClient: AsrClient;
-  private ttsClient: TtsClient;
+  private asrClient: AsrClientType;
+  private ttsClient: TtsClientType;
 
   constructor(private configService: ConfigService) {
     const secretId = this.configService.get<string>('TENCENT_SECRET_ID');
@@ -56,7 +59,7 @@ export class SpeechService {
       Codec: 'wav',
     };
 
-    const result = await this.ttsClient.TextToSpeech(params);
+    const result = await this.ttsClient['TextToSpeech'](params);
     return Buffer.from(result.Audio || '', 'base64');
   }
 

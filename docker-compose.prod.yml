@@ -73,6 +73,11 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-knowledge_doc}
       - REDIS_URL=redis://redis:6379
       - CLICKHOUSE_URL=http://clickhouse:8123/default
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://${CLICKHOUSE_USER:-default}:${CLICKHOUSE_PASSWORD:-}@clickhouse:9000/${CLICKHOUSE_DB:-default}
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-default}
+      - CLICKHOUSE_CLUSTER_ENABLED=${CLICKHOUSE_CLUSTER_ENABLED:-false}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-langfuse-secret-key}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-langfuse-public-key}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-nextauth-secret}

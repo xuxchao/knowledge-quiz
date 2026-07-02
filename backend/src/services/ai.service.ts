@@ -1,13 +1,11 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
-import { ChatModel } from '@langchain/core/language_models/chat_models';
-import { Embeddings } from '@langchain/core/embeddings';
 
 @Injectable()
 export class AiService implements OnModuleInit {
-  private chatModel: ChatModel;
-  private embeddings: Embeddings;
+  private chatModel: ChatOpenAI;
+  private embeddings: OpenAIEmbeddings;
 
   constructor(private configService: ConfigService) {}
 
@@ -16,8 +14,10 @@ export class AiService implements OnModuleInit {
     const apiBaseUrl = this.configService.get<string>('QWEN_API_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1');
 
     this.chatModel = new ChatOpenAI({
-      apiKey,
-      baseURL: apiBaseUrl,
+      apiKey: apiKey || '',
+      configuration: {
+        baseURL: apiBaseUrl,
+      },
       model: 'qwen-max',
       temperature: 0.7,
       maxTokens: 4096,
@@ -25,17 +25,19 @@ export class AiService implements OnModuleInit {
     });
 
     this.embeddings = new OpenAIEmbeddings({
-      apiKey,
-      baseURL: `${apiBaseUrl}/embeddings`,
+      apiKey: apiKey || '',
+      configuration: {
+        baseURL: `${apiBaseUrl}/embeddings`,
+      },
       model: 'text-embedding-v2',
     });
   }
 
-  getChatModel(): ChatModel {
+  getChatModel(): ChatOpenAI {
     return this.chatModel;
   }
 
-  getEmbeddings(): Embeddings {
+  getEmbeddings(): OpenAIEmbeddings {
     return this.embeddings;
   }
 

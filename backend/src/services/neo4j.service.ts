@@ -1,15 +1,11 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Neo4jVectorStore } from '@langchain/community/vectorstores/neo4j_vector';
-import { Neo4jGraph } from '@langchain/community/graphs/neo4j_graph';
-import { Driver, GraphDatabase } from 'neo4j-driver';
-import { Embeddings } from '@langchain/core/embeddings';
+import { Driver, auth } from 'neo4j-driver';
+import neo4j from 'neo4j-driver';
 
 @Injectable()
 export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   private driver: Driver;
-  private graph: Neo4jGraph;
-  private vectorStore: Neo4jVectorStore | null = null;
 
   constructor(private configService: ConfigService) {}
 
@@ -18,14 +14,8 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
     const username = this.configService.get<string>('NEO4J_USER', 'neo4j');
     const password = this.configService.get<string>('NEO4J_PASSWORD', 'password');
 
-    this.driver = GraphDatabase.driver(uri, { auth: { username, password } });
+    this.driver = neo4j.driver(uri, auth.basic(username, password));
     await this.driver.verifyConnectivity();
-
-    this.graph = new Neo4jGraph({
-      url: uri,
-      username,
-      password,
-    });
   }
 
   async onModuleDestroy() {
@@ -34,29 +24,6 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
 
   getDriver(): Driver {
     return this.driver;
-  }
-
-  getGraph(): Neo4jGraph {
-    return this.graph;
-  }
-
-  async getVectorStore(embeddings: Embeddings): Promise<Neo4jVectorStore> {
-    if (!this.vectorStore) {
-      const username = this.configService.get<string>('NEO4J_USER', 'neo4j');
-      const password = this.configService.get<string>('NEO4J_PASSWORD', 'password');
-      const uri = this.configService.get<string>('NEO4J_URI', 'bolt://localhost:7687');
-
-      this.vectorStore = await Neo4jVectorStore.fromExistingIndex(embeddings, {
-        url: uri,
-        username,
-        password,
-        indexName: 'document_embeddings',
-        nodeLabel: 'DocumentChunk',
-        textProperty: 'content',
-        embeddingProperty: 'embedding',
-      });
-    }
-    return this.vectorStore;
   }
 
   async createVectorIndex(): Promise<void> {

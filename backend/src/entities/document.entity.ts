@@ -22,6 +22,7 @@ export enum FileType {
 export enum DocumentStatus {
   UPLOADING = 'uploading',
   PROCESSING = 'processing',
+  PROCESSED = 'processed',
   COMPLETED = 'completed',
   FAILED = 'failed',
 }

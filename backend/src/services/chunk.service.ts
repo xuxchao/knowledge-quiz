@@ -13,7 +13,7 @@ export class ChunkService {
   async findById(id: string): Promise<Chunk | null> {
     return this.chunkRepository.findOne({
       where: { id },
-      relations: ['document'],
+      relations: { document: true },
     });
   }
 
@@ -26,8 +26,8 @@ export class ChunkService {
     return query.getManyAndCount();
   }
 
-  async update(id: string, data: Partial<Chunk>): Promise<Chunk> {
-    await this.chunkRepository.update(id, data);
+  async update(id: string, data: Record<string, unknown>): Promise<Chunk | null> {
+    await this.chunkRepository.update(id, data as any);
     return this.findById(id);
   }
 

@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Conversation } from '../entities/conversation.entity';
-import { Message } from '../entities/message.entity';
+import { Message, MessageRole } from '../entities/message.entity';
 
 @Injectable()
 export class ConversationService {
@@ -21,7 +21,7 @@ export class ConversationService {
   async findById(id: string): Promise<Conversation | null> {
     return this.conversationRepository.findOne({
       where: { id },
-      relations: ['messages'],
+      relations: { messages: true },
     });
   }
 
@@ -42,7 +42,7 @@ export class ConversationService {
     await this.conversationRepository.delete(id);
   }
 
-  async createMessage(conversationId: string, role: 'user' | 'assistant', content: string): Promise<Message> {
+  async createMessage(conversationId: string, role: MessageRole, content: string): Promise<Message> {
     const message = this.messageRepository.create({
       conversationId,
       role,

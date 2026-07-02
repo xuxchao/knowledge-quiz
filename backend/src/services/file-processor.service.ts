@@ -1,16 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as pdfParse from 'pdf-parse';
 import * as mammoth from 'mammoth';
 import * as xlsx from 'xlsx';
 import * as cheerio from 'cheerio';
 import fetch from 'node-fetch';
-import * as sharp from 'sharp';
+import sharp from 'sharp';
 import { FileType } from '../entities/document.entity';
 import { AiService } from './ai.service';
 import { SpeechService } from './speech.service';
 import { Neo4jService } from './neo4j.service';
+
+const pdfParse = require('pdf-parse');
 
 @Injectable()
 export class FileProcessorService {
@@ -220,15 +221,15 @@ export class FileProcessorService {
   async storeChunks(documentId: string, chunks: string[]): Promise<void> {
     const embeddings = await this.aiService.generateEmbeddings(chunks);
     
-    for (let i = 0; i < chunks.length; i++) {
-      await this.neo4jService.addDocumentChunk({
-        id: `${documentId}-${i}`,
+    const documents = chunks.map((content, i) => ({
+      content,
+      metadata: {
         documentId,
-        content: chunks[i],
-        embedding: embeddings[i],
         chunkIndex: i,
         totalChunks: chunks.length,
-      });
-    }
+      },
+    }));
+    
+    await this.neo4jService.addDocuments(documents, embeddings);
   }
 }

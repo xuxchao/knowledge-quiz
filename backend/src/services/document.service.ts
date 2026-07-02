@@ -20,7 +20,7 @@ export class DocumentService {
   async findById(id: string): Promise<Document | null> {
     return this.documentRepository.findOne({
       where: { id },
-      relations: ['chunks'],
+      relations: { chunks: true },
     });
   }
 
@@ -37,14 +37,14 @@ export class DocumentService {
     return query.getManyAndCount();
   }
 
-  async update(id: string, data: Partial<Document>): Promise<Document> {
-    await this.documentRepository.update(id, data);
+  async update(id: string, data: Record<string, unknown>): Promise<Document | null> {
+    await this.documentRepository.update(id, data as any);
     return this.findById(id);
   }
 
   async delete(id: string): Promise<void> {
     await this.documentRepository.delete(id);
-    await this.neo4jService.deleteDocumentChunks(id);
+    await this.neo4jService.deleteByDocumentId(id);
   }
 
   async updateStatus(id: string, status: DocumentStatus, errorMessage?: string): Promise<void> {

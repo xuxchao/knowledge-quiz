@@ -63,7 +63,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async lpush(key: string, ...values: string[]): Promise<void> {
-    await this.client.lPush(key, ...values);
+    await this.client.lPush(key, values);
   }
 
   async lrange(key: string, start: number, end: number): Promise<string[]> {

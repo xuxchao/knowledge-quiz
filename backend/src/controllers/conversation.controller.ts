@@ -4,11 +4,19 @@ import { ConversationService } from '../services/conversation.service';
 import { AiService } from '../services/ai.service';
 import { MemoryService } from '../services/memory.service';
 import { Neo4jService } from '../services/neo4j.service';
+import { MessageRole } from '../entities/message.entity';
 
 interface ChatRequest {
   conversationId?: string;
   message: string;
   userId?: string;
+}
+
+interface SseMessage {
+  type: 'message' | 'done' | 'error';
+  content?: string;
+  conversationId?: string;
+  message?: string;
 }
 
 @Controller('conversations')
@@ -58,7 +66,7 @@ export class ConversationController {
   }
 
   @Sse('chat')
-  async chatSse(@Body() body: ChatRequest): Promise<Observable<MessageEvent>> {
+  async chatSse(@Body() body: ChatRequest): Promise<Observable<SseMessage>> {
     let conversationId = body.conversationId;
     const userId = body.userId || 'default';
 
@@ -69,14 +77,14 @@ export class ConversationController {
       conversationId = conversation.id;
     }
 
-    await this.conversationService.createMessage(conversationId, 'user', body.message);
+    await this.conversationService.createMessage(conversationId, MessageRole.USER, body.message);
     await this.memoryService.saveShortTermMemory(conversationId, body.message);
 
     const memories = await this.memoryService.getRelevantMemories(body.message, conversationId, userId);
     const memoryContext = memories.map(m => m.content).join('\n');
 
     const queryEmbedding = await this.aiService.generateEmbedding(body.message);
-    const relevantChunks = await this.neo4jService.similaritySearch(queryEmbedding, 5);
+    const relevantChunks = await this.neo4jService.search(queryEmbedding, 5);
     const chunkContext = relevantChunks.map(c => c.content).join('\n');
 
     const systemPrompt = `你是一个知识问答助手。请根据以下上下文回答用户问题：
@@ -105,33 +113,27 @@ ${memoryContext}
             fullResponse += content;
             
             observer.next({
-              data: JSON.stringify({
-                type: 'message',
-                content,
-                conversationId,
-              }),
+              type: 'message',
+              content,
+              conversationId,
             });
           }
           
-          await this.conversationService.createMessage(conversationId, 'assistant', fullResponse);
+          await this.conversationService.createMessage(conversationId, MessageRole.ASSISTANT, fullResponse);
           await this.memoryService.saveShortTermMemory(conversationId, fullResponse);
           await this.memoryService.saveLongTermMemory(userId, fullResponse);
           
           observer.next({
-            data: JSON.stringify({
-              type: 'done',
-              conversationId,
-            }),
+            type: 'done',
+            conversationId,
           });
           
           observer.complete();
         })
         .catch((error) => {
           observer.error({
-            data: JSON.stringify({
-              type: 'error',
-              message: error.message,
-            }),
+            type: 'error',
+            message: error.message,
           });
         });
     });

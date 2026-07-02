@@ -1,4 +1,11 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  OneToMany,
+} from 'typeorm';
 import { Message } from './message.entity';
 
 @Entity('conversations')
@@ -24,6 +31,6 @@ export class Conversation {
   @UpdateDateColumn({ type: 'timestamp' })
   updatedAt: Date;
 
-  @OneToMany(() => Message, message => message.conversation)
+  @OneToMany(() => Message, (message) => message.conversation)
   messages: Message[];
 }

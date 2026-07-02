@@ -1,4 +1,16 @@
-import { Controller, Post, Get, Delete, Body, Param, Query, UploadedFile, UseInterceptors, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Get,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UploadedFile,
+  UseInterceptors,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentService } from '../services/document.service';
 import { FileType, DocumentStatus } from '../entities/document.entity';
@@ -36,9 +48,12 @@ export class DocumentController {
 
   @Post()
   @UseInterceptors(FileInterceptor('file'))
-  async uploadFile(@UploadedFile() file: Express.Multer.File, @Body() body: { url?: string }) {
+  async uploadFile(
+    @UploadedFile() file: Express.Multer.File,
+    @Body() body: { url?: string },
+  ) {
     let document;
-    
+
     if (body.url) {
       document = await this.documentService.create({
         name: body.url,
@@ -47,7 +62,9 @@ export class DocumentController {
         status: DocumentStatus.PROCESSING,
       });
     } else if (file) {
-      const ext = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'));
+      const ext = file.originalname
+        .toLowerCase()
+        .substring(file.originalname.lastIndexOf('.'));
       const fileType = FILE_TYPE_MAP[ext] || FileType.TXT;
 
       document = await this.documentService.create({
@@ -58,15 +75,22 @@ export class DocumentController {
         fileSize: file.size,
       });
     } else {
-      throw new HttpException('No file or URL provided', HttpStatus.BAD_REQUEST);
+      throw new HttpException(
+        'No file or URL provided',
+        HttpStatus.BAD_REQUEST,
+      );
     }
 
     try {
       const filePath = body.url ? body.url : file.path;
       const fileName = body.url ? body.url : file.originalname;
-      
-      const { text, metadata } = await this.fileProcessorService.processFile(filePath, fileName, document.type);
-      
+
+      const { text, metadata } = await this.fileProcessorService.processFile(
+        filePath,
+        fileName,
+        document.type,
+      );
+
       await this.documentService.update(document.id, {
         status: DocumentStatus.PROCESSED,
         metadata,
@@ -88,7 +112,10 @@ export class DocumentController {
         status: DocumentStatus.FAILED,
         errorMessage: error.message,
       });
-      throw new HttpException(`File processing failed: ${error.message}`, HttpStatus.INTERNAL_SERVER_ERROR);
+      throw new HttpException(
+        `File processing failed: ${error.message}`,
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
     }
   }
 
@@ -99,8 +126,12 @@ export class DocumentController {
     @Query('limit') limit: number = 10,
   ) {
     const skip = (page - 1) * limit;
-    const [documents, total] = await this.documentService.findAll(name, skip, limit);
-    
+    const [documents, total] = await this.documentService.findAll(
+      name,
+      skip,
+      limit,
+    );
+
     return {
       success: true,
       data: documents,
@@ -131,7 +162,7 @@ export class DocumentController {
     if (!document) {
       throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
     }
-    
+
     await this.documentService.delete(id);
     return {
       success: true,

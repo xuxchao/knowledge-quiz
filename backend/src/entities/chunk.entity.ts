@@ -1,4 +1,11 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, Index } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  ManyToOne,
+  Index,
+} from 'typeorm';
 import { Document } from './document.entity';
 
 @Entity('chunks')
@@ -6,7 +13,9 @@ export class Chunk {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @ManyToOne(() => Document, document => document.chunks, { onDelete: 'CASCADE' })
+  @ManyToOne(() => Document, (document) => document.chunks, {
+    onDelete: 'CASCADE',
+  })
   document: Document;
 
   @Column({ type: 'varchar', length: 36 })

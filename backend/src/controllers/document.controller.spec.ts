@@ -42,8 +42,10 @@ describe('DocumentController', () => {
     it('should return documents list with pagination', async () => {
       const mockDocuments = [];
       const mockCount = 0;
-      
-      jest.spyOn(documentService, 'findAll').mockResolvedValue([mockDocuments, mockCount]);
+
+      jest
+        .spyOn(documentService, 'findAll')
+        .mockResolvedValue([mockDocuments, mockCount]);
 
       const result = await controller.listDocuments('', 1, 10);
 
@@ -63,8 +65,10 @@ describe('DocumentController', () => {
   describe('getDocument', () => {
     it('should return document by id', async () => {
       const mockDocument = { id: '1', name: 'test' };
-      
-      jest.spyOn(documentService, 'findById').mockResolvedValue(mockDocument as any);
+
+      jest
+        .spyOn(documentService, 'findById')
+        .mockResolvedValue(mockDocument as any);
 
       const result = await controller.getDocument('1');
 
@@ -84,8 +88,10 @@ describe('DocumentController', () => {
   describe('deleteDocument', () => {
     it('should delete document successfully', async () => {
       const mockDocument = { id: '1', name: 'test' };
-      
-      jest.spyOn(documentService, 'findById').mockResolvedValue(mockDocument as any);
+
+      jest
+        .spyOn(documentService, 'findById')
+        .mockResolvedValue(mockDocument as any);
       jest.spyOn(documentService, 'delete').mockResolvedValue();
 
       const result = await controller.deleteDocument('1');

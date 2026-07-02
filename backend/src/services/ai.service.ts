@@ -11,7 +11,10 @@ export class AiService implements OnModuleInit {
 
   async onModuleInit() {
     const apiKey = this.configService.get<string>('QWEN_API_KEY');
-    const apiBaseUrl = this.configService.get<string>('QWEN_API_BASE_URL', 'https://dashscope.aliyuncs.com/compatible-mode/v1');
+    const apiBaseUrl = this.configService.get<string>(
+      'QWEN_API_BASE_URL',
+      'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    );
 
     this.chatModel = new ChatOpenAI({
       apiKey: apiKey || '',

@@ -26,14 +26,15 @@ export class ConversationService {
   }
 
   async findAll(userId?: string): Promise<Conversation[]> {
-    const query = this.conversationRepository.createQueryBuilder('conversation');
-    
+    const query =
+      this.conversationRepository.createQueryBuilder('conversation');
+
     if (userId) {
       query.where('conversation.userId = :userId', { userId });
     }
-    
+
     query.orderBy('conversation.updatedAt', 'DESC');
-    
+
     return query.getMany();
   }
 
@@ -42,19 +43,23 @@ export class ConversationService {
     await this.conversationRepository.delete(id);
   }
 
-  async createMessage(conversationId: string, role: MessageRole, content: string): Promise<Message> {
+  async createMessage(
+    conversationId: string,
+    role: MessageRole,
+    content: string,
+  ): Promise<Message> {
     const message = this.messageRepository.create({
       conversationId,
       role,
       content,
     });
-    
+
     await this.messageRepository.save(message);
-    
+
     await this.conversationRepository.update(conversationId, {
       updatedAt: new Date(),
     });
-    
+
     return message;
   }
 

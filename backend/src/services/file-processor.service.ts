@@ -21,7 +21,11 @@ export class FileProcessorService {
     private neo4jService: Neo4jService,
   ) {}
 
-  async processFile(filePath: string, fileName: string, fileType: FileType): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processFile(
+    filePath: string,
+    fileName: string,
+    fileType: FileType,
+  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
     switch (fileType) {
       case FileType.PDF:
         return this.processPdf(filePath);
@@ -54,7 +58,9 @@ export class FileProcessorService {
     }
   }
 
-  async processPdf(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processPdf(
+    filePath: string,
+  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const dataBuffer = fs.readFileSync(filePath);
     const data = await pdfParse(dataBuffer);
     return {
@@ -67,7 +73,9 @@ export class FileProcessorService {
     };
   }
 
-  async processDocx(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processDocx(
+    filePath: string,
+  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const result = await mammoth.extractRawText({ path: filePath });
     return {
       text: result.value,
@@ -75,11 +83,13 @@ export class FileProcessorService {
     };
   }
 
-  async processSpreadsheet(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processSpreadsheet(
+    filePath: string,
+  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const workbook = xlsx.readFile(filePath);
     let text = '';
-    
-    workbook.SheetNames.forEach(sheetName => {
+
+    workbook.SheetNames.forEach((sheetName) => {
       const sheet = workbook.Sheets[sheetName];
       const sheetText = xlsx.utils.sheet_to_csv(sheet);
       text += `\n--- Sheet: ${sheetName} ---\n${sheetText}\n`;
@@ -94,14 +104,18 @@ export class FileProcessorService {
     };
   }
 
-  async processPptx(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processPptx(
+    filePath: string,
+  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
     return {
       text: 'PPTX processing requires additional library. Using placeholder.',
       metadata: {},
     };
   }
 
-  async processTxt(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processTxt(
+    filePath: string,
+  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const text = fs.readFileSync(filePath, 'utf-8');
     return {
       text,
@@ -109,7 +123,9 @@ export class FileProcessorService {
     };
   }
 
-  async processMd(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processMd(
+    filePath: string,
+  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const text = fs.readFileSync(filePath, 'utf-8');
     return {
       text,
@@ -117,7 +133,9 @@ export class FileProcessorService {
     };
   }
 
-  async processJson(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processJson(
+    filePath: string,
+  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const content = fs.readFileSync(filePath, 'utf-8');
     const json = JSON.parse(content);
     return {
@@ -128,14 +146,16 @@ export class FileProcessorService {
     };
   }
 
-  async processUrl(url: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processUrl(
+    url: string,
+  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const response = await fetch(url);
     const html = await response.text();
     const $ = cheerio.load(html);
-    
+
     $('script, style, nav, header, footer').remove();
     const text = $.text().replace(/\s+/g, ' ').trim();
-    
+
     return {
       text,
       metadata: {
@@ -145,18 +165,22 @@ export class FileProcessorService {
     };
   }
 
-  async processImage(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processImage(
+    filePath: string,
+  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const image = sharp(filePath);
     const metadata = await image.metadata();
-    
+
     const imageBuffer = fs.readFileSync(filePath);
     const imageBase64 = imageBuffer.toString('base64');
-    
-    const description = await this.aiService.getChatModel().invoke([{
-      role: 'user',
-      content: `请描述这张图片的内容：${imageBase64}`,
-    }]);
-    
+
+    const description = await this.aiService.getChatModel().invoke([
+      {
+        role: 'user',
+        content: `请描述这张图片的内容：${imageBase64}`,
+      },
+    ]);
+
     return {
       text: description.content.toString(),
       metadata: {
@@ -168,10 +192,12 @@ export class FileProcessorService {
     };
   }
 
-  async processAudio(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processAudio(
+    filePath: string,
+  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const audioBuffer = fs.readFileSync(filePath);
     const text = await this.speechService.speechToText(audioBuffer);
-    
+
     return {
       text,
       metadata: {
@@ -181,9 +207,11 @@ export class FileProcessorService {
     };
   }
 
-  async processVideo(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processVideo(
+    filePath: string,
+  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const videoBuffer = fs.readFileSync(filePath);
-    
+
     return {
       text: '视频处理需要额外的FFmpeg配置。使用占位文本。',
       metadata: {
@@ -193,34 +221,38 @@ export class FileProcessorService {
     };
   }
 
-  async chunkText(text: string, chunkSize: number = 500, chunkOverlap: number = 50): Promise<string[]> {
+  async chunkText(
+    text: string,
+    chunkSize: number = 500,
+    chunkOverlap: number = 50,
+  ): Promise<string[]> {
     const chunks: string[] = [];
     let start = 0;
-    
+
     while (start < text.length) {
       const end = Math.min(start + chunkSize, text.length);
       let chunk = text.substring(start, end);
-      
+
       if (end < text.length) {
         const lastPeriod = chunk.lastIndexOf('.');
         const lastNewline = chunk.lastIndexOf('\n');
         const splitPoint = Math.max(lastPeriod, lastNewline);
-        
+
         if (splitPoint > start + chunkOverlap) {
           chunk = text.substring(start, splitPoint + 1);
         }
       }
-      
+
       chunks.push(chunk.trim());
       start = end - chunkOverlap;
     }
-    
+
     return chunks;
   }
 
   async storeChunks(documentId: string, chunks: string[]): Promise<void> {
     const embeddings = await this.aiService.generateEmbeddings(chunks);
-    
+
     const documents = chunks.map((content, i) => ({
       content,
       metadata: {
@@ -229,7 +261,7 @@ export class FileProcessorService {
         totalChunks: chunks.length,
       },
     }));
-    
+
     await this.neo4jService.addDocuments(documents, embeddings);
   }
 }

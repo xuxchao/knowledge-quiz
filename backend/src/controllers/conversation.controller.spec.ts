@@ -48,8 +48,10 @@ describe('ConversationController', () => {
   describe('listConversations', () => {
     it('should return conversations list', async () => {
       const mockConversations = [];
-      
-      jest.spyOn(conversationService, 'findAll').mockResolvedValue(mockConversations);
+
+      jest
+        .spyOn(conversationService, 'findAll')
+        .mockResolvedValue(mockConversations);
 
       const result = await controller.listConversations('user-1');
 
@@ -63,8 +65,10 @@ describe('ConversationController', () => {
   describe('getConversation', () => {
     it('should return conversation by id', async () => {
       const mockConversation = { id: '1', messages: [] };
-      
-      jest.spyOn(conversationService, 'findById').mockResolvedValue(mockConversation as any);
+
+      jest
+        .spyOn(conversationService, 'findById')
+        .mockResolvedValue(mockConversation as any);
 
       const result = await controller.getConversation('1');
 
@@ -84,8 +88,10 @@ describe('ConversationController', () => {
   describe('deleteConversation', () => {
     it('should delete conversation successfully', async () => {
       const mockConversation = { id: '1', messages: [] };
-      
-      jest.spyOn(conversationService, 'findById').mockResolvedValue(mockConversation as any);
+
+      jest
+        .spyOn(conversationService, 'findById')
+        .mockResolvedValue(mockConversation as any);
       jest.spyOn(conversationService, 'delete').mockResolvedValue();
       jest.spyOn(memoryService, 'clearShortTermMemory').mockResolvedValue();
 

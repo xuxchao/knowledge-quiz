@@ -16,7 +16,10 @@ export class SpeechService {
   constructor(private configService: ConfigService) {
     const secretId = this.configService.get<string>('TENCENT_SECRET_ID');
     const secretKey = this.configService.get<string>('TENCENT_SECRET_KEY');
-    const region = this.configService.get<string>('TENCENT_REGION', 'ap-beijing');
+    const region = this.configService.get<string>(
+      'TENCENT_REGION',
+      'ap-beijing',
+    );
 
     const credential = {
       secretId,
@@ -34,7 +37,10 @@ export class SpeechService {
     });
   }
 
-  async speechToText(audioBuffer: Buffer, format: string = 'wav'): Promise<string> {
+  async speechToText(
+    audioBuffer: Buffer,
+    format: string = 'wav',
+  ): Promise<string> {
     const base64Audio = audioBuffer.toString('base64');
 
     const params = {
@@ -63,7 +69,10 @@ export class SpeechService {
     return Buffer.from(result.Audio || '', 'base64');
   }
 
-  async batchSpeechToText(audioBuffer: Buffer, format: string = 'wav'): Promise<{ result: string; startMs: number; endMs: number }[]> {
+  async batchSpeechToText(
+    audioBuffer: Buffer,
+    format: string = 'wav',
+  ): Promise<{ result: string; startMs: number; endMs: number }[]> {
     const base64Audio = audioBuffer.toString('base64');
 
     const params = {

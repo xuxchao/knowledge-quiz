@@ -17,16 +17,23 @@ export class ChunkService {
     });
   }
 
-  async findByDocument(documentId: string, skip: number = 0, limit: number = 10): Promise<[Chunk[], number]> {
+  async findByDocument(
+    documentId: string,
+    skip: number = 0,
+    limit: number = 10,
+  ): Promise<[Chunk[], number]> {
     const query = this.chunkRepository.createQueryBuilder('chunk');
     query.where('chunk.documentId = :documentId', { documentId });
     query.orderBy('chunk.chunkIndex', 'ASC');
     query.skip(skip).take(limit);
-    
+
     return query.getManyAndCount();
   }
 
-  async update(id: string, data: Record<string, unknown>): Promise<Chunk | null> {
+  async update(
+    id: string,
+    data: Record<string, unknown>,
+  ): Promise<Chunk | null> {
     await this.chunkRepository.update(id, data as any);
     return this.findById(id);
   }

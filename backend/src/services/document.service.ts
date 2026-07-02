@@ -24,20 +24,27 @@ export class DocumentService {
     });
   }
 
-  async findAll(name?: string, skip: number = 0, limit: number = 10): Promise<[Document[], number]> {
+  async findAll(
+    name?: string,
+    skip: number = 0,
+    limit: number = 10,
+  ): Promise<[Document[], number]> {
     const query = this.documentRepository.createQueryBuilder('document');
-    
+
     if (name) {
       query.where('document.name LIKE :name', { name: `%${name}%` });
     }
-    
+
     query.orderBy('document.createdAt', 'DESC');
     query.skip(skip).take(limit);
-    
+
     return query.getManyAndCount();
   }
 
-  async update(id: string, data: Record<string, unknown>): Promise<Document | null> {
+  async update(
+    id: string,
+    data: Record<string, unknown>,
+  ): Promise<Document | null> {
     await this.documentRepository.update(id, data as any);
     return this.findById(id);
   }
@@ -47,7 +54,11 @@ export class DocumentService {
     await this.neo4jService.deleteByDocumentId(id);
   }
 
-  async updateStatus(id: string, status: DocumentStatus, errorMessage?: string): Promise<void> {
+  async updateStatus(
+    id: string,
+    status: DocumentStatus,
+    errorMessage?: string,
+  ): Promise<void> {
     await this.documentRepository.update(id, { status, errorMessage });
   }
 }

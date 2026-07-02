@@ -10,9 +10,15 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   constructor(private configService: ConfigService) {}
 
   async onModuleInit() {
-    const uri = this.configService.get<string>('NEO4J_URI', 'bolt://localhost:7687');
+    const uri = this.configService.get<string>(
+      'NEO4J_URI',
+      'bolt://localhost:7687',
+    );
     const username = this.configService.get<string>('NEO4J_USER', 'neo4j');
-    const password = this.configService.get<string>('NEO4J_PASSWORD', 'password');
+    const password = this.configService.get<string>(
+      'NEO4J_PASSWORD',
+      'password',
+    );
 
     this.driver = neo4j.driver(uri, auth.basic(username, password));
     await this.driver.verifyConnectivity();
@@ -43,41 +49,55 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async addDocuments(documents: { content: string; metadata: Record<string, unknown> }[], embeddings: number[][]): Promise<void> {
+  async addDocuments(
+    documents: { content: string; metadata: Record<string, unknown> }[],
+    embeddings: number[][],
+  ): Promise<void> {
     const session = this.driver.session();
     try {
       for (let i = 0; i < documents.length; i++) {
-        await session.run(`
+        await session.run(
+          `
           CREATE (c:DocumentChunk {
             content: $content,
             metadata: $metadata,
             embedding: $embedding
           })
-        `, {
-          content: documents[i].content,
-          metadata: documents[i].metadata,
-          embedding: embeddings[i],
-        });
+        `,
+          {
+            content: documents[i].content,
+            metadata: documents[i].metadata,
+            embedding: embeddings[i],
+          },
+        );
       }
     } finally {
       await session.close();
     }
   }
 
-  async search(queryEmbedding: number[], topK: number = 5): Promise<{ content: string; metadata: Record<string, unknown>; score: number }[]> {
+  async search(
+    queryEmbedding: number[],
+    topK: number = 5,
+  ): Promise<
+    { content: string; metadata: Record<string, unknown>; score: number }[]
+  > {
     const session = this.driver.session();
     try {
-      const result = await session.run(`
+      const result = await session.run(
+        `
         CALL db.index.vector.queryNodes('document_embeddings', $topK, $queryEmbedding)
         YIELD node, score
         RETURN node.content AS content, node.metadata AS metadata, score
         ORDER BY score DESC
-      `, {
-        topK,
-        queryEmbedding,
-      });
+      `,
+        {
+          topK,
+          queryEmbedding,
+        },
+      );
 
-      return result.records.map(record => ({
+      return result.records.map((record) => ({
         content: record.get('content'),
         metadata: record.get('metadata'),
         score: record.get('score'),
@@ -90,11 +110,14 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   async deleteByDocumentId(documentId: string): Promise<void> {
     const session = this.driver.session();
     try {
-      await session.run(`
+      await session.run(
+        `
         MATCH (c:DocumentChunk)
         WHERE c.metadata.documentId = $documentId
         DELETE c
-      `, { documentId });
+      `,
+        { documentId },
+      );
     } finally {
       await session.close();
     }

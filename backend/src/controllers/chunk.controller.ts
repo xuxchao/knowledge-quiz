@@ -1,4 +1,14 @@
-import { Controller, Get, Put, Delete, Param, Body, Query, HttpException, HttpStatus } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Put,
+  Delete,
+  Param,
+  Body,
+  Query,
+  HttpException,
+  HttpStatus,
+} from '@nestjs/common';
 import { ChunkService } from '../services/chunk.service';
 
 @Controller('chunks')
@@ -12,8 +22,12 @@ export class ChunkController {
     @Query('limit') limit: number = 10,
   ) {
     const skip = (page - 1) * limit;
-    const [chunks, total] = await this.chunkService.findByDocument(documentId, skip, limit);
-    
+    const [chunks, total] = await this.chunkService.findByDocument(
+      documentId,
+      skip,
+      limit,
+    );
+
     return {
       success: true,
       data: chunks,
@@ -39,13 +53,18 @@ export class ChunkController {
   }
 
   @Put(':id')
-  async updateChunk(@Param('id') id: string, @Body() body: { content: string }) {
+  async updateChunk(
+    @Param('id') id: string,
+    @Body() body: { content: string },
+  ) {
     const chunk = await this.chunkService.findById(id);
     if (!chunk) {
       throw new HttpException('Chunk not found', HttpStatus.NOT_FOUND);
     }
-    
-    const updated = await this.chunkService.update(id, { content: body.content });
+
+    const updated = await this.chunkService.update(id, {
+      content: body.content,
+    });
     return {
       success: true,
       data: updated,
@@ -58,7 +77,7 @@ export class ChunkController {
     if (!chunk) {
       throw new HttpException('Chunk not found', HttpStatus.NOT_FOUND);
     }
-    
+
     await this.chunkService.delete(id);
     return {
       success: true,

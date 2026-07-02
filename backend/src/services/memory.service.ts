@@ -15,7 +15,11 @@ export class MemoryService {
 
   constructor(private redisService: RedisService) {}
 
-  async saveShortTermMemory(conversationId: string, content: string, metadata?: Record<string, unknown>): Promise<void> {
+  async saveShortTermMemory(
+    conversationId: string,
+    content: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
     const key = `memory:short:${conversationId}`;
     const item: MemoryItem = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
@@ -32,7 +36,11 @@ export class MemoryService {
       memories.shift();
     }
 
-    await this.redisService.set(key, JSON.stringify(memories), this.shortTermMemoryTtl);
+    await this.redisService.set(
+      key,
+      JSON.stringify(memories),
+      this.shortTermMemoryTtl,
+    );
   }
 
   async getShortTermMemory(conversationId: string): Promise<MemoryItem[]> {
@@ -41,7 +49,11 @@ export class MemoryService {
     return existing ? JSON.parse(existing) : [];
   }
 
-  async saveLongTermMemory(userId: string, content: string, metadata?: Record<string, unknown>): Promise<void> {
+  async saveLongTermMemory(
+    userId: string,
+    content: string,
+    metadata?: Record<string, unknown>,
+  ): Promise<void> {
     const item: MemoryItem = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       content,
@@ -63,13 +75,19 @@ export class MemoryService {
     return this.longTermMemoryStore.get(userId) || [];
   }
 
-  async getRelevantMemories(query: string, conversationId: string, userId: string = 'default'): Promise<MemoryItem[]> {
+  async getRelevantMemories(
+    query: string,
+    conversationId: string,
+    userId: string = 'default',
+  ): Promise<MemoryItem[]> {
     const shortTerm = await this.getShortTermMemory(conversationId);
     const longTerm = await this.getLongTermMemory(userId);
 
     const allMemories = [...shortTerm, ...longTerm];
 
-    return allMemories.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime()).slice(0, 20);
+    return allMemories
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, 20);
   }
 
   async clearShortTermMemory(conversationId: string): Promise<void> {

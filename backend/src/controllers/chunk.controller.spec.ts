@@ -32,8 +32,10 @@ describe('ChunkController', () => {
     it('should return chunks list with pagination', async () => {
       const mockChunks = [];
       const mockCount = 0;
-      
-      jest.spyOn(chunkService, 'findByDocument').mockResolvedValue([mockChunks, mockCount]);
+
+      jest
+        .spyOn(chunkService, 'findByDocument')
+        .mockResolvedValue([mockChunks, mockCount]);
 
       const result = await controller.listChunks('doc-1', 1, 10);
 
@@ -53,7 +55,7 @@ describe('ChunkController', () => {
   describe('getChunk', () => {
     it('should return chunk by id', async () => {
       const mockChunk = { id: '1', content: 'test' };
-      
+
       jest.spyOn(chunkService, 'findById').mockResolvedValue(mockChunk as any);
 
       const result = await controller.getChunk('1');
@@ -75,7 +77,7 @@ describe('ChunkController', () => {
     it('should update chunk successfully', async () => {
       const mockChunk = { id: '1', content: 'test' };
       const updatedChunk = { id: '1', content: 'updated' };
-      
+
       jest.spyOn(chunkService, 'findById').mockResolvedValue(mockChunk as any);
       jest.spyOn(chunkService, 'update').mockResolvedValue(updatedChunk as any);
 
@@ -91,7 +93,7 @@ describe('ChunkController', () => {
   describe('deleteChunk', () => {
     it('should delete chunk successfully', async () => {
       const mockChunk = { id: '1', content: 'test' };
-      
+
       jest.spyOn(chunkService, 'findById').mockResolvedValue(mockChunk as any);
       jest.spyOn(chunkService, 'delete').mockResolvedValue();
 

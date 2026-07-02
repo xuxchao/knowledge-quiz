@@ -8,7 +8,9 @@ async function bootstrap() {
   app.enableCors();
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
 
-  const port = process.env.BACKEND_PORT ? parseInt(process.env.BACKEND_PORT) : 3001;
+  const port = process.env.BACKEND_PORT
+    ? parseInt(process.env.BACKEND_PORT)
+    : 3001;
   await app.listen(port);
 }
 

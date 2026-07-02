@@ -1,4 +1,11 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import {
+  Entity,
+  Column,
+  PrimaryGeneratedColumn,
+  CreateDateColumn,
+  UpdateDateColumn,
+  OneToMany,
+} from 'typeorm';
 import { Chunk } from './chunk.entity';
 
 export enum FileType {
@@ -44,7 +51,12 @@ export class Document {
   @Column({ type: 'text', nullable: true })
   url: string;
 
-  @Column({ type: 'varchar', length: 50, enum: DocumentStatus, default: DocumentStatus.UPLOADING })
+  @Column({
+    type: 'varchar',
+    length: 50,
+    enum: DocumentStatus,
+    default: DocumentStatus.UPLOADING,
+  })
   status: DocumentStatus;
 
   @Column({ type: 'text', nullable: true })
@@ -65,6 +77,6 @@ export class Document {
   @UpdateDateColumn({ type: 'timestamp' })
   updatedAt: Date;
 
-  @OneToMany(() => Chunk, chunk => chunk.document)
+  @OneToMany(() => Chunk, (chunk) => chunk.document)
   chunks: Chunk[];
 }

@@ -29,7 +29,9 @@ export class MemoryService {
     };
 
     const existing = await this.redisService.get(key);
-    const memories: MemoryItem[] = existing ? JSON.parse(existing) : [];
+    const memories: MemoryItem[] = existing
+      ? (JSON.parse(existing) as MemoryItem[])
+      : [];
     memories.push(item);
 
     if (memories.length > 50) {
@@ -46,14 +48,14 @@ export class MemoryService {
   async getShortTermMemory(conversationId: string): Promise<MemoryItem[]> {
     const key = `memory:short:${conversationId}`;
     const existing = await this.redisService.get(key);
-    return existing ? JSON.parse(existing) : [];
+    return existing ? (JSON.parse(existing) as MemoryItem[]) : [];
   }
 
-  async saveLongTermMemory(
+  saveLongTermMemory(
     userId: string,
     content: string,
     metadata?: Record<string, unknown>,
-  ): Promise<void> {
+  ): void {
     const item: MemoryItem = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       content,
@@ -71,7 +73,7 @@ export class MemoryService {
     this.longTermMemoryStore.set(userId, memories);
   }
 
-  async getLongTermMemory(userId: string): Promise<MemoryItem[]> {
+  getLongTermMemory(userId: string): MemoryItem[] {
     return this.longTermMemoryStore.get(userId) || [];
   }
 
@@ -81,7 +83,7 @@ export class MemoryService {
     userId: string = 'default',
   ): Promise<MemoryItem[]> {
     const shortTerm = await this.getShortTermMemory(conversationId);
-    const longTerm = await this.getLongTermMemory(userId);
+    const longTerm = this.getLongTermMemory(userId);
 
     const allMemories = [...shortTerm, ...longTerm];
 
@@ -95,7 +97,7 @@ export class MemoryService {
     await this.redisService.del(key);
   }
 
-  async clearLongTermMemory(userId: string): Promise<void> {
+  clearLongTermMemory(userId: string): void {
     this.longTermMemoryStore.delete(userId);
   }
 }

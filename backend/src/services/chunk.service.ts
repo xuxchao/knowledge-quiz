@@ -34,7 +34,7 @@ export class ChunkService {
     id: string,
     data: Record<string, unknown>,
   ): Promise<Chunk | null> {
-    await this.chunkRepository.update(id, data as any);
+    await this.chunkRepository.update(id, data);
     return this.findById(id);
   }
 

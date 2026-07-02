@@ -11,7 +11,20 @@ import { AiService } from './ai.service';
 import { SpeechService } from './speech.service';
 import { Neo4jService } from './neo4j.service';
 
-const pdfParse = require('pdf-parse');
+import pdfParseModule from 'pdf-parse';
+
+const pdfParse = pdfParseModule as unknown as (
+  data: Buffer,
+) => Promise<PdfParseResult>;
+
+interface PdfParseResult {
+  text: string;
+  info: {
+    Author?: string;
+    Title?: string;
+  };
+  numpages: number;
+}
 
 @Injectable()
 export class FileProcessorService {
@@ -38,7 +51,7 @@ export class FileProcessorService {
         return this.processSpreadsheet(filePath);
       case FileType.PPTX:
       case FileType.PPT:
-        return this.processPptx(filePath);
+        return this.processPptx();
       case FileType.TXT:
         return this.processTxt(filePath);
       case FileType.MD:
@@ -54,7 +67,7 @@ export class FileProcessorService {
       case FileType.VIDEO:
         return this.processVideo(filePath);
       default:
-        throw new Error(`Unsupported file type: ${fileType}`);
+        throw new Error(`Unsupported file type: ${fileType as string}`);
     }
   }
 
@@ -83,9 +96,10 @@ export class FileProcessorService {
     };
   }
 
-  async processSpreadsheet(
-    filePath: string,
-  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  processSpreadsheet(filePath: string): {
+    text: string;
+    metadata: Record<string, unknown>;
+  } {
     const workbook = xlsx.readFile(filePath);
     let text = '';
 
@@ -104,18 +118,20 @@ export class FileProcessorService {
     };
   }
 
-  async processPptx(
-    filePath: string,
-  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  processPptx(): {
+    text: string;
+    metadata: Record<string, unknown>;
+  } {
     return {
       text: 'PPTX processing requires additional library. Using placeholder.',
       metadata: {},
     };
   }
 
-  async processTxt(
-    filePath: string,
-  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  processTxt(filePath: string): {
+    text: string;
+    metadata: Record<string, unknown>;
+  } {
     const text = fs.readFileSync(filePath, 'utf-8');
     return {
       text,
@@ -123,9 +139,10 @@ export class FileProcessorService {
     };
   }
 
-  async processMd(
-    filePath: string,
-  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  processMd(filePath: string): {
+    text: string;
+    metadata: Record<string, unknown>;
+  } {
     const text = fs.readFileSync(filePath, 'utf-8');
     return {
       text,
@@ -133,11 +150,12 @@ export class FileProcessorService {
     };
   }
 
-  async processJson(
-    filePath: string,
-  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  processJson(filePath: string): {
+    text: string;
+    metadata: Record<string, unknown>;
+  } {
     const content = fs.readFileSync(filePath, 'utf-8');
-    const json = JSON.parse(content);
+    const json = JSON.parse(content) as Record<string, unknown>;
     return {
       text: JSON.stringify(json, null, 2),
       metadata: {
@@ -182,7 +200,10 @@ export class FileProcessorService {
     ]);
 
     return {
-      text: description.content.toString(),
+      text:
+        typeof description.content === 'string'
+          ? description.content
+          : JSON.stringify(description.content || ''),
       metadata: {
         width: metadata.width,
         height: metadata.height,
@@ -207,9 +228,10 @@ export class FileProcessorService {
     };
   }
 
-  async processVideo(
-    filePath: string,
-  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  processVideo(filePath: string): {
+    text: string;
+    metadata: Record<string, unknown>;
+  } {
     const videoBuffer = fs.readFileSync(filePath);
 
     return {
@@ -221,11 +243,11 @@ export class FileProcessorService {
     };
   }
 
-  async chunkText(
+  chunkText(
     text: string,
     chunkSize: number = 500,
     chunkOverlap: number = 50,
-  ): Promise<string[]> {
+  ): string[] {
     const chunks: string[] = [];
     let start = 0;
 

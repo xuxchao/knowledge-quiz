@@ -9,7 +9,7 @@ export class AiService implements OnModuleInit {
 
   constructor(private configService: ConfigService) {}
 
-  async onModuleInit() {
+  onModuleInit() {
     const apiKey = this.configService.get<string>('QWEN_API_KEY');
     const apiBaseUrl = this.configService.get<string>(
       'QWEN_API_BASE_URL',

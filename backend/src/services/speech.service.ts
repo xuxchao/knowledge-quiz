@@ -8,6 +8,21 @@ const TtsClient = tencentcloud.tts.v20190823.Client;
 type AsrClientType = typeof AsrClient.prototype;
 type TtsClientType = typeof TtsClient.prototype;
 
+interface TextToSpeechParams {
+  Text: string;
+  SessionId: string;
+  VoiceType: number;
+  Speed: number;
+  Volume: number;
+  SampleRate: number;
+  Codec: string;
+}
+
+interface TextToSpeechResult {
+  Audio?: string;
+  RequestId?: string;
+}
+
 @Injectable()
 export class SpeechService {
   private asrClient: AsrClientType;
@@ -55,7 +70,7 @@ export class SpeechService {
   }
 
   async textToSpeech(text: string): Promise<Buffer> {
-    const params = {
+    const params: TextToSpeechParams = {
       Text: text,
       SessionId: `${Date.now()}`,
       VoiceType: 101001,
@@ -65,7 +80,10 @@ export class SpeechService {
       Codec: 'wav',
     };
 
-    const result = await this.ttsClient['TextToSpeech'](params);
+    const ttsClient = this.ttsClient as unknown as {
+      TextToSpeech: (params: TextToSpeechParams) => Promise<TextToSpeechResult>;
+    };
+    const result = await ttsClient.TextToSpeech(params);
     return Buffer.from(result.Audio || '', 'base64');
   }
 

@@ -98,9 +98,9 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
       );
 
       return result.records.map((record) => ({
-        content: record.get('content'),
-        metadata: record.get('metadata'),
-        score: record.get('score'),
+        content: record.get('content') as string,
+        metadata: record.get('metadata') as Record<string, unknown>,
+        score: record.get('score') as number,
       }));
     } finally {
       await session.close();

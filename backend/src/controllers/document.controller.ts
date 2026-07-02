@@ -13,7 +13,11 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentService } from '../services/document.service';
-import { FileType, DocumentStatus } from '../entities/document.entity';
+import {
+  FileType,
+  DocumentStatus,
+  Document,
+} from '../entities/document.entity';
 import { FileProcessorService } from '../services/file-processor.service';
 
 const FILE_TYPE_MAP: Record<string, FileType> = {
@@ -52,7 +56,7 @@ export class DocumentController {
     @UploadedFile() file: Express.Multer.File,
     @Body() body: { url?: string },
   ) {
-    let document;
+    let document: Document;
 
     if (body.url) {
       document = await this.documentService.create({
@@ -96,7 +100,7 @@ export class DocumentController {
         metadata,
       });
 
-      const chunks = await this.fileProcessorService.chunkText(text);
+      const chunks = this.fileProcessorService.chunkText(text);
       await this.fileProcessorService.storeChunks(document.id, chunks);
 
       await this.documentService.update(document.id, {
@@ -107,13 +111,15 @@ export class DocumentController {
         success: true,
         data: await this.documentService.findById(document.id),
       };
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       await this.documentService.update(document.id, {
         status: DocumentStatus.FAILED,
-        errorMessage: error.message,
+        errorMessage,
       });
       throw new HttpException(
-        `File processing failed: ${error.message}`,
+        `File processing failed: ${errorMessage}`,
         HttpStatus.INTERNAL_SERVER_ERROR,
       );
     }

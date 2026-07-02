@@ -1,6 +1,5 @@
 import {
   Controller,
-  Post,
   Get,
   Delete,
   Body,
@@ -128,7 +127,10 @@ ${memoryContext}
           let fullResponse = '';
 
           for await (const chunk of stream) {
-            const content = chunk.content?.toString() || '';
+            const content =
+              typeof chunk.content === 'string'
+                ? chunk.content
+                : JSON.stringify(chunk.content || '');
             fullResponse += content;
 
             observer.next({
@@ -147,7 +149,7 @@ ${memoryContext}
             conversationId,
             fullResponse,
           );
-          await this.memoryService.saveLongTermMemory(userId, fullResponse);
+          this.memoryService.saveLongTermMemory(userId, fullResponse);
 
           observer.next({
             type: 'done',
@@ -156,7 +158,7 @@ ${memoryContext}
 
           observer.complete();
         })
-        .catch((error) => {
+        .catch((error: Error) => {
           observer.error({
             type: 'error',
             message: error.message,

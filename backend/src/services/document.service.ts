@@ -45,7 +45,7 @@ export class DocumentService {
     id: string,
     data: Record<string, unknown>,
   ): Promise<Document | null> {
-    await this.documentRepository.update(id, data as any);
+    await this.documentRepository.update(id, data);
     return this.findById(id);
   }
 

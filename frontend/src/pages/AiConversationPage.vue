@@ -1,7 +1,7 @@
 <script setup lang="ts">import { ref, onMounted } from 'vue';
 import { Plus, MessageSquare, Mic, Send, Play, Trash2 } from 'lucide-vue-next';
-import * as markdownit from 'markdown-it';
-const md = markdownit();
+import MarkdownIt from 'markdown-it';
+const md = new MarkdownIt();
 interface Message {
  id: string;
  role: 'user' | 'assistant';

@@ -4,7 +4,7 @@ services:
     container_name: knowledge-doc-redis-prod
     restart: always
     volumes:
-      - ./volumes/redis-data:/data
+      - ./volumes-prod/redis-data:/data
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     networks:
@@ -15,7 +15,7 @@ services:
     container_name: knowledge-doc-postgres-prod
     restart: always
     volumes:
-      - ./volumes/postgres-data:/var/lib/postgresql/data
+      - ./volumes-prod/postgres-data:/var/lib/postgresql/data
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-knowledge_doc}
       - POSTGRES_USER=${POSTGRES_USER:-admin}
@@ -28,7 +28,7 @@ services:
     container_name: knowledge-doc-es-prod
     restart: always
     volumes:
-      - ./volumes/es-data:/usr/share/elasticsearch/data
+      - ./volumes-prod/es-data:/usr/share/elasticsearch/data
     environment:
       - discovery.type=single-node
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
@@ -41,9 +41,9 @@ services:
     container_name: knowledge-doc-neo4j-prod
     restart: always
     volumes:
-      - ./volumes/neo4j-data:/data
-      - ./volumes/neo4j-logs:/logs
-      - ./volumes/neo4j-conf:/conf
+      - ./volumes-prod/neo4j-data:/data
+      - ./volumes-prod/neo4j-logs:/logs
+      - ./volumes-prod/neo4j-conf:/conf
     environment:
       - NEO4J_AUTH=${NEO4J_AUTH:-neo4j/password}
       - NEO4J_PLUGINS=["apoc"]
@@ -55,7 +55,7 @@ services:
     container_name: knowledge-doc-clickhouse-prod
     restart: always
     volumes:
-      - ./volumes/clickhouse-data:/var/lib/clickhouse
+      - ./volumes-prod/clickhouse-data:/var/lib/clickhouse
     environment:
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}

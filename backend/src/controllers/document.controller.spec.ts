@@ -1,10 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ConfigModule } from '@nestjs/config';
 import { DocumentController } from './document.controller';
 import { DocumentService } from '../services/document.service';
 import { FileProcessorService } from '../services/file-processor.service';
+import { AiService } from '../services/ai.service';
+import { SpeechService } from '../services/speech.service';
+import { Neo4jService } from '../services/neo4j.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Document } from '../entities/document.entity';
-import { Neo4jService } from '../services/neo4j.service';
 
 describe('DocumentController', () => {
   let controller: DocumentController;
@@ -12,10 +15,13 @@ describe('DocumentController', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
+      imports: [ConfigModule.forRoot()],
       controllers: [DocumentController],
       providers: [
         DocumentService,
         FileProcessorService,
+        AiService,
+        SpeechService,
         Neo4jService,
         {
           provide: getRepositoryToken(Document),

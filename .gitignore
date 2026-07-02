@@ -52,3 +52,5 @@ junit.xml
 # Temporary files
 *.tmp
 *.temp
+
+volumes/

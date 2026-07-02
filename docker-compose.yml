@@ -6,7 +6,7 @@ services:
     ports:
       - '6379:6379'
     volumes:
-      - redis-data:/data
+      - ./volumes/redis-data:/data
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     networks:
@@ -19,7 +19,7 @@ services:
     ports:
       - '5432:5432'
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - ./volumes/postgres-data:/var/lib/postgresql/data
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-knowledge_doc}
       - POSTGRES_USER=${POSTGRES_USER:-admin}
@@ -35,7 +35,7 @@ services:
       - '9200:9200'
       - '9300:9300'
     volumes:
-      - es-data:/usr/share/elasticsearch/data
+      - ./volumes/es-data:/usr/share/elasticsearch/data
     environment:
       - discovery.type=single-node
       - ES_JAVA_OPTS=-Xms512m -Xmx512m
@@ -51,9 +51,9 @@ services:
       - '7474:7474'
       - '7687:7687'
     volumes:
-      - neo4j-data:/data
-      - neo4j-logs:/logs
-      - neo4j-conf:/conf
+      - ./volumes/neo4j-data:/data
+      - ./volumes/neo4j-logs:/logs
+      - ./volumes/neo4j-conf:/conf
     environment:
       - NEO4J_AUTH=${NEO4J_AUTH:-neo4j/password}
       - NEO4J_PLUGINS=["apoc"]
@@ -68,9 +68,27 @@ services:
       - '8123:8123'
       - '9000:9000'
     volumes:
-      - clickhouse-data:/var/lib/clickhouse
+      - ./volumes/clickhouse-data:/var/lib/clickhouse
     environment:
+      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-default}
+    networks:
+      - knowledge-doc-network
+
+  minio:
+    image: minio/minio:latest
+    container_name: knowledge-doc-minio
+    restart: always
+    ports:
+      - '9002:9000'
+      - '9003:9001'
+    volumes:
+      - ./volumes/minio-data:/data
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server --console-address ":9001" /data
     networks:
       - knowledge-doc-network
 
@@ -85,10 +103,11 @@ services:
       - postgres
       - redis
       - clickhouse
+      - minio
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-knowledge_doc}
       - REDIS_URL=redis://redis:6379
-      - CLICKHOUSE_URL=http://clickhouse:8123/default
+      - CLICKHOUSE_URL=http://clickhouse:8123/${CLICKHOUSE_DB:-default}
       - CLICKHOUSE_MIGRATION_URL=clickhouse://${CLICKHOUSE_USER:-default}:${CLICKHOUSE_PASSWORD:-}@clickhouse:9000/${CLICKHOUSE_DB:-default}
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
@@ -97,17 +116,16 @@ services:
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-langfuse-secret-key}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-langfuse-public-key}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-nextauth-secret}
+      - NEXTAUTH_URL=${NEXTAUTH_URL:-http://localhost:3005}
+      - SALT=${SALT:-mysalt123456789012345678901234567890}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-0000000000000000000000000000000000000000000000000000000000000000}
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=${LANGFUSE_S3_EVENT_UPLOAD_BUCKET:-langfuse}
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=${LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT:-http://minio:9000}
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=${LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID:-minioadmin}
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=${LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY:-minioadmin}
+      - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=${LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE:-true}
     networks:
       - knowledge-doc-network
-
-volumes:
-  redis-data:
-  postgres-data:
-  es-data:
-  neo4j-data:
-  neo4j-logs:
-  neo4j-conf:
-  clickhouse-data:
 
 networks:
   knowledge-doc-network:

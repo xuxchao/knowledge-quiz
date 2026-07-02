@@ -1,0 +1,109 @@
+services:
+  redis:
+    image: redis:7.4-alpine
+    container_name: knowledge-doc-redis
+    restart: always
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis-data:/data
+    environment:
+      - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    networks:
+      - knowledge-doc-network
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: knowledge-doc-postgres
+    restart: always
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=${POSTGRES_DB:-knowledge_doc}
+      - POSTGRES_USER=${POSTGRES_USER:-admin}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+    networks:
+      - knowledge-doc-network
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    container_name: knowledge-doc-es
+    restart: always
+    ports:
+      - '9200:9200'
+      - '9300:9300'
+    volumes:
+      - es-data:/usr/share/elasticsearch/data
+    environment:
+      - discovery.type=single-node
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+      - xpack.security.enabled=false
+    networks:
+      - knowledge-doc-network
+
+  neo4j:
+    image: neo4j:5.26
+    container_name: knowledge-doc-neo4j
+    restart: always
+    ports:
+      - '7474:7474'
+      - '7687:7687'
+    volumes:
+      - neo4j-data:/data
+      - neo4j-logs:/logs
+      - neo4j-conf:/conf
+    environment:
+      - NEO4J_AUTH=${NEO4J_AUTH:-neo4j/password}
+      - NEO4J_PLUGINS=["apoc"]
+    networks:
+      - knowledge-doc-network
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:latest
+    container_name: knowledge-doc-clickhouse
+    restart: always
+    ports:
+      - '8123:8123'
+      - '9000:9000'
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    environment:
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
+    networks:
+      - knowledge-doc-network
+
+  langfuse:
+    image: langfuse/langfuse:latest
+    container_name: knowledge-doc-langfuse
+    restart: always
+    ports:
+      - '3000:3000'
+      - '8080:8080'
+    depends_on:
+      - postgres
+      - redis
+      - clickhouse
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-knowledge_doc}
+      - REDIS_URL=redis://redis:6379
+      - CLICKHOUSE_URL=http://clickhouse:8123/default
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-langfuse-secret-key}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-langfuse-public-key}
+      - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-nextauth-secret}
+    networks:
+      - knowledge-doc-network
+
+volumes:
+  redis-data:
+  postgres-data:
+  es-data:
+  neo4j-data:
+  neo4j-logs:
+  neo4j-conf:
+  clickhouse-data:
+
+networks:
+  knowledge-doc-network:
+    driver: bridge

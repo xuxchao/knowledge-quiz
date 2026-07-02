@@ -1,0 +1,67 @@
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Conversation } from '../entities/conversation.entity';
+import { Message } from '../entities/message.entity';
+
+@Injectable()
+export class ConversationService {
+  constructor(
+    @InjectRepository(Conversation)
+    private conversationRepository: Repository<Conversation>,
+    @InjectRepository(Message)
+    private messageRepository: Repository<Message>,
+  ) {}
+
+  async create(data: Partial<Conversation>): Promise<Conversation> {
+    const conversation = this.conversationRepository.create(data);
+    return this.conversationRepository.save(conversation);
+  }
+
+  async findById(id: string): Promise<Conversation | null> {
+    return this.conversationRepository.findOne({
+      where: { id },
+      relations: ['messages'],
+    });
+  }
+
+  async findAll(userId?: string): Promise<Conversation[]> {
+    const query = this.conversationRepository.createQueryBuilder('conversation');
+    
+    if (userId) {
+      query.where('conversation.userId = :userId', { userId });
+    }
+    
+    query.orderBy('conversation.updatedAt', 'DESC');
+    
+    return query.getMany();
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.messageRepository.delete({ conversationId: id });
+    await this.conversationRepository.delete(id);
+  }
+
+  async createMessage(conversationId: string, role: 'user' | 'assistant', content: string): Promise<Message> {
+    const message = this.messageRepository.create({
+      conversationId,
+      role,
+      content,
+    });
+    
+    await this.messageRepository.save(message);
+    
+    await this.conversationRepository.update(conversationId, {
+      updatedAt: new Date(),
+    });
+    
+    return message;
+  }
+
+  async getMessages(conversationId: string): Promise<Message[]> {
+    return this.messageRepository.find({
+      where: { conversationId },
+      order: { createdAt: 'ASC' },
+    });
+  }
+}

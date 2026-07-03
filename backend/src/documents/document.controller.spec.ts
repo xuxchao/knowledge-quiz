@@ -1,11 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigModule } from '@nestjs/config';
 import { DocumentController } from './document.controller';
-import { DocumentService } from '../services/document.service';
-import { FileProcessorService } from '../services/file-processor.service';
-import { AiService } from '../services/ai.service';
-import { SpeechService } from '../services/speech.service';
-import { Neo4jService } from '../services/neo4j.service';
+import { DocumentService } from './document.service';
+import { FileProcessorService } from '../infrastructure/file-processor/file-processor.service';
+import { AiService } from '../ai/ai.service';
+import { SpeechService } from '../infrastructure/speech/speech.service';
+import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Document } from '../entities/document.entity';
 
@@ -78,7 +78,7 @@ describe('DocumentController', () => {
       });
     });
 
-    it('should return 404 if document not found', async () => {
+    it('should throw error if document not found', async () => {
       jest.spyOn(documentService, 'findById').mockResolvedValue(null);
 
       await expect(controller.getDocument('1')).rejects.toThrow();
@@ -102,7 +102,7 @@ describe('DocumentController', () => {
       });
     });
 
-    it('should return 404 if document not found', async () => {
+    it('should throw error if document not found', async () => {
       jest.spyOn(documentService, 'findById').mockResolvedValue(null);
 
       await expect(controller.deleteDocument('1')).rejects.toThrow();

@@ -22,6 +22,7 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
 
     this.driver = neo4j.driver(uri, auth.basic(username, password));
     await this.driver.verifyConnectivity();
+    await this.createVectorIndex();
   }
 
   async onModuleDestroy() {
@@ -40,8 +41,8 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
         FOR (c:DocumentChunk)
         ON c.embedding
         OPTIONS { indexConfig: {
-          vector.dimensions: 1536,
-          vector.similarity_function: 'cosine'
+          \`vector.dimensions\`: 1536,
+          \`vector.similarity_function\`: 'cosine'
         }}
       `);
     } finally {

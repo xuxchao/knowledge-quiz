@@ -1,215 +1,53 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import {
-  Upload,
-  FileText,
-  List,
-  Search,
-  Trash2,
-  Eye,
-  Edit2,
-  X,
-  Plus,
-} from 'lucide-vue-next';
-import http from '@/core/http';
+import { onMounted } from 'vue';
+import { List, Upload, FileText } from 'lucide-vue-next';
+import DocumentList from '@/components/document/DocumentList.vue';
+import FileUpload from '@/components/document/FileUpload.vue';
+import ChunkList from '@/components/document/ChunkList.vue';
+import { useDocument } from '@/composables/useDocument';
 
-interface Document {
-  id: string;
-  name: string;
-  type: string;
-  status: string;
-  chunkCount: number;
-  fileSize: number;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-interface Chunk {
-  id: string;
-  content: string;
-  chunkIndex: number;
-  totalChunks: number;
-  createdAt: Date;
-}
-
-type TabType = 'files' | 'upload' | 'chunks';
-
-const activeTab = ref<TabType>('files');
-const documents = ref<Document[]>([]);
-const chunks = ref<Chunk[]>([]);
-const searchQuery = ref('');
-const currentPage = ref(1);
-const totalPages = ref(1);
-const selectedDocument = ref<Document | null>(null);
-const editingChunkId = ref<string | null>(null);
-const editingChunkContent = ref('');
-const isUploading = ref(false);
-const uploadProgress = ref(0);
-const uploadFile = ref<File | null>(null);
-const urlInput = ref('');
-
-const fetchDocuments = async (page: number = 1, search: string = '') => {
-  try {
-    const response = await http.get('/api/documents', {
-      params: {
-        page,
-        limit: 10,
-        ...(search && { name: search }),
-      },
-    });
-    documents.value = response.data.data || [];
-    totalPages.value = response.data.pagination?.pages || 1;
-    currentPage.value = page;
-  } catch (error) {
-    console.error('Failed to fetch documents:', error);
-  }
-};
-
-const fetchChunks = async (documentId: string, page: number = 1) => {
-  try {
-    const response = await http.get('/api/chunks', {
-      params: {
-        documentId,
-        page,
-        limit: 10,
-      },
-    });
-    chunks.value = response.data.data || [];
-  } catch (error) {
-    console.error('Failed to fetch chunks:', error);
-  }
-};
-
-const deleteDocument = async (documentId: string) => {
-  if (!confirm('确定要删除这个文件吗？')) return;
-  try {
-    await http.delete(`/api/documents/${documentId}`);
-    await fetchDocuments(currentPage.value, searchQuery.value);
-  } catch (error) {
-    console.error('Failed to delete document:', error);
-  }
-};
-
-const viewChunks = (document: Document) => {
-  selectedDocument.value = document;
-  activeTab.value = 'chunks';
-  fetchChunks(document.id);
-};
-
-const editChunk = (chunk: Chunk) => {
-  editingChunkId.value = chunk.id;
-  editingChunkContent.value = chunk.content;
-};
-
-const saveChunk = async (chunkId: string) => {
-  try {
-    await http.put(`/api/chunks/${chunkId}`, {
-      content: editingChunkContent.value,
-    });
-    editingChunkId.value = null;
-    editingChunkContent.value = '';
-    if (selectedDocument.value) {
-      fetchChunks(selectedDocument.value.id);
-    }
-  } catch (error) {
-    console.error('Failed to update chunk:', error);
-  }
-};
-
-const deleteChunk = async (chunkId: string) => {
-  if (!confirm('确定要删除这个切片吗？')) return;
-  try {
-    await http.delete(`/api/chunks/${chunkId}`);
-    if (selectedDocument.value) {
-      fetchChunks(selectedDocument.value.id);
-    }
-  } catch (error) {
-    console.error('Failed to delete chunk:', error);
-  }
-};
-
-const handleFileUpload = async () => {
-  if (!uploadFile.value) return;
-
-  isUploading.value = true;
-  uploadProgress.value = 0;
-
-  try {
-    const formData = new FormData();
-    formData.append('file', uploadFile.value);
-
-    const response = await http.post('/api/documents', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-
-    const data = response.data;
-    if (data.success) {
-      alert('文件上传成功');
-      uploadFile.value = null;
-      activeTab.value = 'files';
-      fetchDocuments();
-    } else {
-      alert('文件上传失败');
-    }
-  } catch (error) {
-    console.error('Failed to upload file:', error);
-    alert('文件上传失败');
-  } finally {
-    isUploading.value = false;
-    uploadProgress.value = 0;
-  }
-};
-
-const handleUrlUpload = async () => {
-  if (!urlInput.value.trim()) return;
-
-  isUploading.value = true;
-
-  try {
-    const response = await http.post('/api/documents', {
-      url: urlInput.value.trim(),
-    });
-
-    const data = response.data;
-    if (data.success) {
-      alert('URL 处理成功');
-      urlInput.value = '';
-      activeTab.value = 'files';
-      fetchDocuments();
-    } else {
-      alert('URL 处理失败');
-    }
-  } catch (error) {
-    console.error('Failed to process URL:', error);
-    alert('URL 处理失败');
-  } finally {
-    isUploading.value = false;
-  }
-};
-
-const formatFileSize = (bytes: number) => {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const sizes = ['B', 'KB', 'MB', 'GB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-};
-
-const formatStatus = (status: string) => {
-  const statusMap: Record<string, string> = {
-    UPLOADING: '上传中',
-    PROCESSING: '处理中',
-    PROCESSED: '已处理',
-    FAILED: '失败',
-  };
-  return statusMap[status] || status;
-};
+const {
+  activeTab,
+  documents,
+  chunks,
+  searchQuery,
+  currentPage,
+  totalPages,
+  selectedDocument,
+  editingChunkId,
+  editingChunkContent,
+  isUploading,
+  uploadFile,
+  urlInput,
+  fetchDocuments,
+  fetchChunks,
+  deleteDocument,
+  viewChunks,
+  editChunk,
+  saveChunk,
+  deleteChunk,
+  handleFileUpload,
+  handleUrlUpload,
+  formatFileSize,
+  formatStatus,
+} = useDocument();
 
 onMounted(() => {
-  fetchDocuments();
+  void fetchDocuments();
 });
+
+const handleSearch = (query: string): void => {
+  void fetchDocuments(1, query);
+};
+
+const handlePageChange = (page: number): void => {
+  void fetchDocuments(page, searchQuery.value);
+};
+
+const triggerFileUpload = (): void => {
+  const fileInput = globalThis.document.getElementById('file-upload') as HTMLInputElement;
+  fileInput?.click();
+};
 </script>
 
 <template>
@@ -253,7 +91,7 @@ onMounted(() => {
           ]"
           @click="
             activeTab = 'chunks';
-            fetchChunks(selectedDocument.id);
+            void fetchChunks(selectedDocument.id);
           "
         >
           <FileText class="w-4 h-4" />
@@ -262,283 +100,52 @@ onMounted(() => {
       </nav>
     </div>
 
-    <div v-if="activeTab === 'files'" class="p-6">
-      <div class="flex items-center justify-between mb-4">
-        <div class="relative">
-          <Search
-            class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400"
-          />
-          <input
-            v-model="searchQuery"
-            placeholder="搜索文件名..."
-            class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
-            @keyup.enter="fetchDocuments(1, searchQuery)"
-          />
-          <button
-            class="ml-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            @click="fetchDocuments(1, searchQuery)"
-          >
-            搜索
-          </button>
-        </div>
-        <button
-          class="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          @click="activeTab = 'upload'"
-        >
-          <Plus class="w-4 h-4" />
-          <span>上传文件</span>
-        </button>
-      </div>
+    <DocumentList
+      v-if="activeTab === 'files'"
+      :documents="documents"
+      :search-query="searchQuery"
+      :current-page="currentPage"
+      :total-pages="totalPages"
+      :format-file-size="formatFileSize"
+      :format-status="formatStatus"
+      @search="handleSearch"
+      @upload="activeTab = 'upload'"
+      @view-chunks="viewChunks"
+      @delete="deleteDocument"
+      @page-change="handlePageChange"
+    />
 
-      <div class="overflow-x-auto">
-        <table class="w-full">
-          <thead>
-            <tr class="bg-gray-50">
-              <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">文件名</th>
-              <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">类型</th>
-              <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">状态</th>
-              <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">切片数</th>
-              <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">大小</th>
-              <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">创建时间</th>
-              <th class="px-4 py-3 text-left text-sm font-medium text-gray-700">操作</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-200">
-            <tr v-for="doc in documents" :key="doc.id">
-              <td class="px-4 py-3">
-                <div class="flex items-center space-x-2">
-                  <FileText class="w-5 h-5 text-gray-400" />
-                  <span class="font-medium text-gray-900">{{ doc.name }}</span>
-                </div>
-              </td>
-              <td class="px-4 py-3 text-sm text-gray-600">{{ doc.type }}</td>
-              <td class="px-4 py-3">
-                <span
-                  :class="[
-                    'px-2 py-1 text-xs font-medium rounded-full',
-                    doc.status === 'PROCESSED'
-                      ? 'bg-green-100 text-green-800'
-                      : doc.status === 'PROCESSING'
-                        ? 'bg-yellow-100 text-yellow-800'
-                        : doc.status === 'FAILED'
-                          ? 'bg-red-100 text-red-800'
-                          : 'bg-blue-100 text-blue-800',
-                  ]"
-                >
-                  {{ formatStatus(doc.status) }}
-                </span>
-              </td>
-              <td class="px-4 py-3 text-sm text-gray-600">{{ doc.chunkCount }}</td>
-              <td class="px-4 py-3 text-sm text-gray-600">{{ formatFileSize(doc.fileSize) }}</td>
-              <td class="px-4 py-3 text-sm text-gray-600">
-                {{ new Date(doc.createdAt).toLocaleString() }}
-              </td>
-              <td class="px-4 py-3">
-                <div class="flex space-x-2">
-                  <button
-                    class="p-2 text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                    title="查看切片"
-                    @click="viewChunks(doc)"
-                  >
-                    <Eye class="w-4 h-4" />
-                  </button>
-                  <button
-                    class="p-2 text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                    title="删除"
-                    @click="deleteDocument(doc.id)"
-                  >
-                    <Trash2 class="w-4 h-4" />
-                  </button>
-                </div>
-              </td>
-            </tr>
-            <tr v-if="documents.length === 0">
-              <td colspan="7" class="px-4 py-8 text-center text-gray-500">
-                <FileText class="w-12 h-12 mx-auto mb-4 text-gray-300" />
-                <p>暂无文件</p>
-                <button
-                  class="mt-2 text-blue-600 hover:text-blue-700"
-                  @click="activeTab = 'upload'"
-                >
-                  上传文件
-                </button>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
+    <FileUpload
+      v-else-if="activeTab === 'upload'"
+      :is-uploading="isUploading"
+      :upload-file="uploadFile"
+      :url-input="urlInput"
+      :format-file-size="formatFileSize"
+      @select-file="triggerFileUpload"
+      @set-upload-file="(file) => (uploadFile = file)"
+      @upload-file="handleFileUpload"
+      @set-url-input="(value) => (urlInput = value)"
+      @upload-url="handleUrlUpload"
+    />
 
-      <div v-if="totalPages > 1" class="flex items-center justify-between mt-4">
-        <button
-          :disabled="currentPage === 1"
-          class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          @click="fetchDocuments(currentPage - 1, searchQuery)"
-        >
-          上一页
-        </button>
-        <span class="text-sm text-gray-600">第 {{ currentPage }} / {{ totalPages }} 页</span>
-        <button
-          :disabled="currentPage === totalPages"
-          class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-          @click="fetchDocuments(currentPage + 1, searchQuery)"
-        >
-          下一页
-        </button>
-      </div>
-    </div>
-
-    <div v-if="activeTab === 'upload'" class="p-6">
-      <div class="max-w-2xl mx-auto">
-        <h2 class="text-lg font-semibold text-gray-900 mb-4">上传文件</h2>
-
-        <div class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center mb-6">
-          <Upload class="w-12 h-12 mx-auto mb-4 text-gray-400" />
-          <p class="text-gray-600 mb-2">点击或拖拽文件到此处上传</p>
-          <p class="text-sm text-gray-400">
-            支持 PDF、DOCX、XLSX、PPTX、TXT、MD、JSON、图片、音频、视频
-          </p>
-          <input
-            id="file-upload"
-            type="file"
-            class="hidden"
-            accept=".pdf,.docx,.doc,.xlsx,.xls,.csv,.pptx,.ppt,.txt,.md,.json,.jpg,.jpeg,.png,.gif,.webp,.mp3,.wav,.m4a,.mp4"
-            @change="uploadFile = ($event.target as HTMLInputElement).files?.[0] || null"
-          />
-          <button
-            ref="fileInput"
-            class="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            @click="($refs.fileInput as HTMLInputElement)?.click()"
-          >
-            选择文件
-          </button>
-        </div>
-
-        <div v-if="uploadFile" class="mb-6 p-4 bg-gray-50 rounded-lg">
-          <div class="flex items-center justify-between mb-2">
-            <span class="font-medium">{{ uploadFile.name }}</span>
-            <span class="text-sm text-gray-500">{{ formatFileSize(uploadFile.size) }}</span>
-          </div>
-          <div class="w-full bg-gray-200 rounded-full h-2">
-            <div
-              class="bg-blue-600 h-2 rounded-full transition-all"
-              :style="{ width: `${uploadProgress}%` }"
-            ></div>
-          </div>
-        </div>
-
-        <button
-          :disabled="!uploadFile || isUploading"
-          :class="[
-            'w-full py-3 rounded-lg font-medium transition-colors',
-            uploadFile && !isUploading
-              ? 'bg-blue-600 text-white hover:bg-blue-700'
-              : 'bg-gray-200 text-gray-400 cursor-not-allowed',
-          ]"
-          @click="handleFileUpload"
-        >
-          {{ isUploading ? '上传中...' : '上传文件' }}
-        </button>
-
-        <div class="mt-8 pt-8 border-t border-gray-200">
-          <h3 class="text-lg font-semibold text-gray-900 mb-4">URL 地址处理</h3>
-          <div class="flex space-x-3">
-            <input
-              v-model="urlInput"
-              placeholder="输入 URL 地址..."
-              class="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <button
-              :disabled="!urlInput.trim() || isUploading"
-              :class="[
-                'px-6 py-2 rounded-lg font-medium transition-colors',
-                urlInput.trim() && !isUploading
-                  ? 'bg-blue-600 text-white hover:bg-blue-700'
-                  : 'bg-gray-200 text-gray-400 cursor-not-allowed',
-              ]"
-              @click="handleUrlUpload"
-            >
-              {{ isUploading ? '处理中...' : '处理 URL' }}
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="activeTab === 'chunks' && selectedDocument" class="p-6">
-      <div class="flex items-center justify-between mb-4">
-        <div>
-          <h2 class="text-lg font-semibold text-gray-900">{{ selectedDocument.name }}</h2>
-          <p class="text-sm text-gray-500">共 {{ selectedDocument.chunkCount }} 个切片</p>
-        </div>
-        <button
-          class="flex items-center space-x-2 px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-          @click="
-            activeTab = 'files';
-            selectedDocument = null;
-          "
-        >
-          <X class="w-4 h-4" />
-          <span>返回</span>
-        </button>
-      </div>
-
-      <div class="space-y-4">
-        <div v-for="chunk in chunks" :key="chunk.id" class="border border-gray-200 rounded-lg p-4">
-          <div class="flex items-center justify-between mb-2">
-            <span class="text-sm font-medium text-gray-700">
-              切片 {{ chunk.chunkIndex + 1 }} / {{ chunk.totalChunks }}
-            </span>
-            <div class="flex space-x-2">
-              <button
-                class="p-1 text-gray-500 hover:text-blue-600 transition-colors"
-                @click="editChunk(chunk)"
-              >
-                <Edit2 class="w-4 h-4" />
-              </button>
-              <button
-                class="p-1 text-gray-500 hover:text-red-600 transition-colors"
-                @click="deleteChunk(chunk.id)"
-              >
-                <Trash2 class="w-4 h-4" />
-              </button>
-            </div>
-          </div>
-
-          <div v-if="editingChunkId === chunk.id" class="mb-2">
-            <textarea
-              v-model="editingChunkContent"
-              class="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none h-32"
-            ></textarea>
-            <div class="flex space-x-2 mt-2">
-              <button
-                class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                @click="saveChunk(chunk.id)"
-              >
-                保存
-              </button>
-              <button
-                class="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                @click="
-                  editingChunkId = null;
-                  editingChunkContent = '';
-                "
-              >
-                取消
-              </button>
-            </div>
-          </div>
-
-          <p v-else class="text-sm text-gray-600 whitespace-pre-wrap max-h-32 overflow-y-auto">
-            {{ chunk.content }}
-          </p>
-        </div>
-
-        <div v-if="chunks.length === 0" class="text-center py-8 text-gray-500">
-          <FileText class="w-12 h-12 mx-auto mb-4 text-gray-300" />
-          <p>暂无切片数据</p>
-        </div>
-      </div>
-    </div>
+    <ChunkList
+      v-else-if="activeTab === 'chunks' && selectedDocument"
+      v-model:editing-chunk-content="editingChunkContent"
+      :document="selectedDocument"
+      :chunks="chunks"
+      :editing-chunk-id="editingChunkId"
+      @back="
+        activeTab = 'files';
+        selectedDocument = null;
+      "
+      @edit="editChunk"
+      @save="saveChunk"
+      @cancel="
+        editingChunkId = null;
+        editingChunkContent = '';
+      "
+      @delete="deleteChunk"
+    />
   </div>
 
   <input id="file-upload" type="file" class="hidden" />

@@ -6,10 +6,10 @@ import * as xlsx from 'xlsx';
 import * as cheerio from 'cheerio';
 import fetch from 'node-fetch';
 import sharp from 'sharp';
-import { FileType } from '../entities/document.entity';
-import { AiService } from './ai.service';
-import { SpeechService } from './speech.service';
-import { Neo4jService } from './neo4j.service';
+import { FileType } from '../../entities/document.entity';
+import { AiService } from '../../ai/ai.service';
+import { SpeechService } from '../speech/speech.service';
+import { Neo4jService } from '../neo4j/neo4j.service';
 
 import pdfParseModule from 'pdf-parse';
 

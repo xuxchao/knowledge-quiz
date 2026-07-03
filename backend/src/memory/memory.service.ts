@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { RedisService } from './redis.service';
+import { RedisService } from '../infrastructure/redis/redis.service';
 
 export interface MemoryItem {
   id: string;
@@ -54,7 +54,10 @@ export class MemoryService {
     const memories: MemoryItem[] = JSON.parse(existing) as MemoryItem[];
     return memories.map((item) => ({
       ...item,
-      createdAt: typeof item.createdAt === 'string' ? new Date(item.createdAt).getTime() : item.createdAt,
+      createdAt:
+        typeof item.createdAt === 'string'
+          ? new Date(item.createdAt).getTime()
+          : item.createdAt,
     }));
   }
 
@@ -94,9 +97,7 @@ export class MemoryService {
 
     const allMemories = [...shortTerm, ...longTerm];
 
-    return allMemories
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, 20);
+    return allMemories.sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
   }
 
   async clearShortTermMemory(conversationId: string): Promise<void> {

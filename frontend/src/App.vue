@@ -8,7 +8,7 @@ type PageType = 'conversation' | 'backend';
 
 const currentPage = ref<PageType>('conversation');
 
-const switchPage = (page: PageType) => {
+const switchPage = (page: PageType): void => {
   currentPage.value = page;
 };
 </script>

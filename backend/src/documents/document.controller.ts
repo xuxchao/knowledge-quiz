@@ -8,17 +8,11 @@ import {
   Query,
   UploadedFile,
   UseInterceptors,
-  HttpException,
-  HttpStatus,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { DocumentService } from '../services/document.service';
-import {
-  FileType,
-  DocumentStatus,
-  Document,
-} from '../entities/document.entity';
-import { FileProcessorService } from '../services/file-processor.service';
+import { DocumentService } from './document.service';
+import { FileProcessorService } from '../infrastructure/file-processor/file-processor.service';
+import { FileType, DocumentStatus } from '../entities/document.entity';
 
 const FILE_TYPE_MAP: Record<string, FileType> = {
   '.pdf': FileType.PDF,
@@ -56,7 +50,7 @@ export class DocumentController {
     @UploadedFile() file: Express.Multer.File,
     @Body() body: { url?: string },
   ) {
-    let document: Document;
+    let document;
 
     if (body.url) {
       document = await this.documentService.create({
@@ -79,10 +73,7 @@ export class DocumentController {
         fileSize: file.size,
       });
     } else {
-      throw new HttpException(
-        'No file or URL provided',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new Error('No file or URL provided');
     }
 
     try {
@@ -118,10 +109,7 @@ export class DocumentController {
         status: DocumentStatus.FAILED,
         errorMessage,
       });
-      throw new HttpException(
-        `File processing failed: ${errorMessage}`,
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new Error(`File processing failed: ${errorMessage}`);
     }
   }
 
@@ -154,7 +142,7 @@ export class DocumentController {
   async getDocument(@Param('id') id: string) {
     const document = await this.documentService.findById(id);
     if (!document) {
-      throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+      throw new Error('Document not found');
     }
     return {
       success: true,
@@ -166,7 +154,7 @@ export class DocumentController {
   async deleteDocument(@Param('id') id: string) {
     const document = await this.documentService.findById(id);
     if (!document) {
-      throw new HttpException('Document not found', HttpStatus.NOT_FOUND);
+      throw new Error('Document not found');
     }
 
     await this.documentService.delete(id);

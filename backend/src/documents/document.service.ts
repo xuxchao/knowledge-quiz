@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Document, DocumentStatus } from '../entities/document.entity';
-import { Neo4jService } from './neo4j.service';
+import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
 
 @Injectable()
 export class DocumentService {

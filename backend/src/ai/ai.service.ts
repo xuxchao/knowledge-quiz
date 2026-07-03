@@ -17,7 +17,7 @@ export class AiService implements OnModuleInit {
     );
 
     if (!apiKey) {
-      throw new Error('QWEN_API_KEY environment variable is not set. Please configure it in the .env file.');
+      throw new Error('QWEN_API_KEY environment variable is not set');
     }
 
     this.chatModel = new ChatOpenAI({

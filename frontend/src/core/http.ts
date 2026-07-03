@@ -1,8 +1,8 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 
-const BACKEND_HOST = import.meta.env.VITE_BACKEND_HOST || 'localhost';
-const BACKEND_PORT = import.meta.env.VITE_BACKEND_PORT || '3000';
+const BACKEND_HOST = import.meta.env.VITE_BACKEND_HOST ?? 'localhost';
+const BACKEND_PORT = import.meta.env.VITE_BACKEND_PORT ?? '3000';
 
 export const baseURL = `http://${BACKEND_HOST}:${BACKEND_PORT}`;
 
@@ -15,21 +15,21 @@ const instance: AxiosInstance = axios.create({
 });
 
 instance.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
+  (config: InternalAxiosRequestConfig): InternalAxiosRequestConfig => {
     return config;
   },
-  (error) => {
-    return Promise.reject(error);
+  (error: unknown): Promise<never> => {
+    return Promise.reject(new Error(String(error)));
   },
 );
 
 instance.interceptors.response.use(
-  (response: AxiosResponse) => {
+  (response: AxiosResponse): AxiosResponse => {
     return response;
   },
-  (error) => {
+  (error: unknown): Promise<never> => {
     console.error('HTTP request error:', error);
-    return Promise.reject(error);
+    return Promise.reject(new Error(String(error)));
   },
 );
 

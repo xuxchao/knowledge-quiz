@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { Plus, MessageSquare, Mic, Send, Play, Trash2 } from 'lucide-vue-next';
 import MarkdownIt from 'markdown-it';
+import http from '@/core/http';
 const md = new MarkdownIt();
 interface Message {
   id: string;
@@ -25,9 +26,8 @@ const isRecording = ref(false);
 const audioRef = ref<HTMLAudioElement | null>(null);
 const fetchConversations = async () => {
   try {
-    const response = await fetch('/api/conversations');
-    const data = await response.json();
-    conversations.value = data.data || [];
+    const response = await http.get(`/api/conversations?userId=default`);
+    conversations.value = response.data.data || [];
     if (conversations.value.length > 0) {
       selectConversation(conversations.value[0]);
     }
@@ -70,18 +70,12 @@ const sendMessage = async () => {
   };
   messages.value.push(assistantMessage);
   try {
-    const response = await fetch('/api/conversations/chat', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        conversationId: currentConversation.value?.id || undefined,
-        message: messageText,
-        userId: 'default',
-      }),
+    const response = await http.post('/api/conversations/chat', {
+      conversationId: currentConversation.value?.id || undefined,
+      message: messageText,
+      userId: 'default',
     });
-    const reader = response.body?.getReader();
+    const reader = response.data?.body?.getReader?.();
     const decoder = new TextDecoder();
     if (reader) {
       while (true) {
@@ -96,15 +90,17 @@ const sendMessage = async () => {
               assistantMessage.content += data.content;
               if (!currentConversation.value?.id) {
                 currentConversation.value = {
-                  ...currentConversation.value,
+                  ...currentConversation.value!,
                   id: data.conversationId,
+                  userId: currentConversation.value?.userId || 'default',
                 };
               }
             } else if (data.type === 'done') {
               if (!currentConversation.value?.id) {
                 currentConversation.value = {
-                  ...currentConversation.value,
+                  ...currentConversation.value!,
                   id: data.conversationId,
+                  userId: currentConversation.value?.userId || 'default',
                 };
               }
               await fetchConversations();
@@ -113,6 +109,27 @@ const sendMessage = async () => {
             console.error('Failed to parse SSE message:', e);
           }
         }
+      }
+    } else {
+      const data = response.data;
+      if (data.type === 'message') {
+        assistantMessage.content += data.content;
+        if (!currentConversation.value?.id) {
+          currentConversation.value = {
+            ...currentConversation.value!,
+            id: data.conversationId,
+            userId: currentConversation.value?.userId || 'default',
+          };
+        }
+      } else if (data.type === 'done') {
+        if (!currentConversation.value?.id) {
+          currentConversation.value = {
+            ...currentConversation.value!,
+            id: data.conversationId,
+            userId: currentConversation.value?.userId || 'default',
+          };
+        }
+        await fetchConversations();
       }
     }
   } catch (error) {
@@ -125,9 +142,7 @@ const sendMessage = async () => {
 const deleteConversation = async (conversationId: string) => {
   if (!confirm('确定要删除这个会话吗？')) return;
   try {
-    await fetch(`/api/conversations/${conversationId}`, {
-      method: 'DELETE',
-    });
+    await http.delete(`/api/conversations/${conversationId}`);
     await fetchConversations();
   } catch (error) {
     console.error('Failed to delete conversation:', error);

@@ -10,8 +10,8 @@ import {
   Edit2,
   X,
   Plus,
-  Download,
 } from 'lucide-vue-next';
+import http from '@/core/http';
 
 interface Document {
   id: string;
@@ -50,12 +50,15 @@ const urlInput = ref('');
 
 const fetchDocuments = async (page: number = 1, search: string = '') => {
   try {
-    const response = await fetch(
-      `/api/documents?page=${page}&limit=10${search ? `&name=${encodeURIComponent(search)}` : ''}`,
-    );
-    const data = await response.json();
-    documents.value = data.data || [];
-    totalPages.value = data.pagination?.pages || 1;
+    const response = await http.get('/api/documents', {
+      params: {
+        page,
+        limit: 10,
+        ...(search && { name: search }),
+      },
+    });
+    documents.value = response.data.data || [];
+    totalPages.value = response.data.pagination?.pages || 1;
     currentPage.value = page;
   } catch (error) {
     console.error('Failed to fetch documents:', error);
@@ -64,9 +67,14 @@ const fetchDocuments = async (page: number = 1, search: string = '') => {
 
 const fetchChunks = async (documentId: string, page: number = 1) => {
   try {
-    const response = await fetch(`/api/chunks?documentId=${documentId}&page=${page}&limit=10`);
-    const data = await response.json();
-    chunks.value = data.data || [];
+    const response = await http.get('/api/chunks', {
+      params: {
+        documentId,
+        page,
+        limit: 10,
+      },
+    });
+    chunks.value = response.data.data || [];
   } catch (error) {
     console.error('Failed to fetch chunks:', error);
   }
@@ -75,9 +83,7 @@ const fetchChunks = async (documentId: string, page: number = 1) => {
 const deleteDocument = async (documentId: string) => {
   if (!confirm('确定要删除这个文件吗？')) return;
   try {
-    await fetch(`/api/documents/${documentId}`, {
-      method: 'DELETE',
-    });
+    await http.delete(`/api/documents/${documentId}`);
     await fetchDocuments(currentPage.value, searchQuery.value);
   } catch (error) {
     console.error('Failed to delete document:', error);
@@ -97,12 +103,8 @@ const editChunk = (chunk: Chunk) => {
 
 const saveChunk = async (chunkId: string) => {
   try {
-    await fetch(`/api/chunks/${chunkId}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ content: editingChunkContent.value }),
+    await http.put(`/api/chunks/${chunkId}`, {
+      content: editingChunkContent.value,
     });
     editingChunkId.value = null;
     editingChunkContent.value = '';
@@ -117,9 +119,7 @@ const saveChunk = async (chunkId: string) => {
 const deleteChunk = async (chunkId: string) => {
   if (!confirm('确定要删除这个切片吗？')) return;
   try {
-    await fetch(`/api/chunks/${chunkId}`, {
-      method: 'DELETE',
-    });
+    await http.delete(`/api/chunks/${chunkId}`);
     if (selectedDocument.value) {
       fetchChunks(selectedDocument.value.id);
     }
@@ -138,12 +138,13 @@ const handleFileUpload = async () => {
     const formData = new FormData();
     formData.append('file', uploadFile.value);
 
-    const response = await fetch('/api/documents', {
-      method: 'POST',
-      body: formData,
+    const response = await http.post('/api/documents', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
     });
 
-    const data = await response.json();
+    const data = response.data;
     if (data.success) {
       alert('文件上传成功');
       uploadFile.value = null;
@@ -167,15 +168,11 @@ const handleUrlUpload = async () => {
   isUploading.value = true;
 
   try {
-    const response = await fetch('/api/documents', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ url: urlInput.value.trim() }),
+    const response = await http.post('/api/documents', {
+      url: urlInput.value.trim(),
     });
 
-    const data = await response.json();
+    const data = response.data;
     if (data.success) {
       alert('URL 处理成功');
       urlInput.value = '';

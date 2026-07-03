@@ -55,4 +55,21 @@ export class AiService implements OnModuleInit {
   async generateEmbeddings(texts: string[]): Promise<number[][]> {
     return this.embeddings.embedDocuments(texts);
   }
+
+  async *streamChain(
+    query: string,
+    systemPrompt: string,
+  ): AsyncGenerator<string> {
+    const stream = await this.chatModel.stream([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: query },
+    ]);
+    for await (const chunk of stream) {
+      const content =
+        typeof chunk.content === 'string'
+          ? chunk.content
+          : JSON.stringify(chunk.content || '');
+      yield content;
+    }
+  }
 }

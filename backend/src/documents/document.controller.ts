@@ -8,11 +8,16 @@ import {
   Query,
   UploadedFile,
   UseInterceptors,
+  Logger,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentService } from './document.service';
 import { FileProcessorService } from '../infrastructure/file-processor/file-processor.service';
-import { FileType, DocumentStatus } from '../entities/document.entity';
+import {
+  Document,
+  FileType,
+  DocumentStatus,
+} from '../entities/document.entity';
 
 const FILE_TYPE_MAP: Record<string, FileType> = {
   '.pdf': FileType.PDF,
@@ -39,6 +44,8 @@ const FILE_TYPE_MAP: Record<string, FileType> = {
 
 @Controller('documents')
 export class DocumentController {
+  private readonly logger = new Logger(DocumentController.name);
+
   constructor(
     private documentService: DocumentService,
     private fileProcessorService: FileProcessorService,
@@ -50,7 +57,11 @@ export class DocumentController {
     @UploadedFile() file: Express.Multer.File,
     @Body() body: { url?: string },
   ) {
-    let document;
+    this.logger.debug(
+      `[uploadFile] 开始处理文件上传请求 - file: ${file ? file.originalname : 'undefined'}, url: ${body.url ? '***URL***' : 'undefined'}, file.path: ${file ? file.path : 'undefined'}`,
+    );
+
+    let document: Document;
 
     if (body.url) {
       document = await this.documentService.create({
@@ -77,8 +88,16 @@ export class DocumentController {
     }
 
     try {
+      this.logger.debug(
+        `[uploadFile] 进入文件处理流程 - body.url: ${body.url ? '***URL***' : 'undefined'}, file.path: ${file ? file.path : 'undefined'}, document.id: ${document.id}, document.type: ${document.type}`,
+      );
+
       const filePath = body.url ? body.url : file.path;
       const fileName = body.url ? body.url : file.originalname;
+
+      this.logger.debug(
+        `[uploadFile] 文件路径处理完成 - filePath: ${filePath ? '***REDACTED***' : 'undefined'}, fileName: ${fileName ? fileName.substring(0, 50) + (fileName.length > 50 ? '...' : '') : 'undefined'}, document.type: ${document.type}`,
+      );
 
       const { text, metadata } = await this.fileProcessorService.processFile(
         filePath,
@@ -98,6 +117,10 @@ export class DocumentController {
         chunkCount: chunks.length,
       });
 
+      this.logger.debug(
+        `[uploadFile] 文件处理完成 - document.id: ${document.id}, chunkCount: ${chunks.length}`,
+      );
+
       return {
         success: true,
         data: await this.documentService.findById(document.id),
@@ -105,6 +128,13 @@ export class DocumentController {
     } catch (error: unknown) {
       const errorMessage =
         error instanceof Error ? error.message : String(error);
+      const stackTrace = error instanceof Error ? error.stack : undefined;
+
+      this.logger.error(
+        `[uploadFile] 文件处理失败 - document.id: ${document.id}, error: ${errorMessage}`,
+        stackTrace,
+      );
+
       await this.documentService.update(document.id, {
         status: DocumentStatus.FAILED,
         errorMessage,

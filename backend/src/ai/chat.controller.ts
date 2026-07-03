@@ -6,19 +6,13 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import { Observable } from 'rxjs';
+import { Observable, from } from 'rxjs';
+import { map, finalize, endWith } from 'rxjs/operators';
 import { ConversationService } from '../conversations/conversation.service';
 import { AiService } from './ai.service';
 import { MemoryService } from '../memory/memory.service';
 import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
 import { MessageRole } from '../entities/message.entity';
-
-interface SseMessage {
-  type: 'message' | 'done' | 'error';
-  content?: string;
-  conversationId?: string;
-  message?: string;
-}
 
 @Controller('conversations')
 export class ChatController {
@@ -36,7 +30,7 @@ export class ChatController {
     @Query('conversationId') conversationId?: string,
     @Query('message') message?: string,
     @Query('userId') userId?: string,
-  ): Promise<Observable<SseMessage>> {
+  ): Promise<Observable<{ data: string }>> {
     this.logger.log(
       `[chatSse] conversationId: ${conversationId || '未提供'}, userId: ${userId || '未提供'}, message: ${message?.substring(0, 50)}${(message?.length ?? 0) > 50 ? '...' : ''}`,
     );
@@ -87,31 +81,28 @@ ${memoryContext}
 
 请用简洁、准确的语言回答用户问题。如果问题与知识库无关，请直接回答，无需强行关联。回答使用中文。`;
 
-    return new Observable((observer) => {
-      const chatModel = this.aiService.getChatModel();
+    let fullResponse = '';
 
-      chatModel
-        .stream([
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: message },
-        ])
-        .then(async (stream) => {
-          let fullResponse = '';
-
-          for await (const chunk of stream) {
-            const content =
-              typeof chunk.content === 'string'
-                ? chunk.content
-                : JSON.stringify(chunk.content || '');
-            fullResponse += content;
-
-            observer.next({
-              type: 'message',
-              content,
-              conversationId,
-            });
-          }
-
+    return from(this.aiService.streamChain(message, systemPrompt)).pipe(
+      map((chunk) => {
+        fullResponse += chunk;
+        return {
+          data: JSON.stringify({
+            type: 'message' as const,
+            content: chunk,
+            conversationId,
+          }),
+        };
+      }),
+      endWith({
+        data: JSON.stringify({
+          type: 'done' as const,
+          content: '',
+          conversationId,
+        }),
+      }),
+      finalize(() => {
+        void (async () => {
           await this.conversationService.createMessage(
             conversationId,
             MessageRole.ASSISTANT,
@@ -124,20 +115,8 @@ ${memoryContext}
           );
 
           this.memoryService.saveLongTermMemory(uid, fullResponse);
-
-          observer.next({
-            type: 'done',
-            conversationId,
-          });
-
-          observer.complete();
-        })
-        .catch((error: Error) => {
-          observer.error({
-            type: 'error',
-            message: error.message,
-          });
-        });
-    });
+        })();
+      }),
+    );
   }
 }

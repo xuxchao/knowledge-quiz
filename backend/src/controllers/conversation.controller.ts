@@ -76,13 +76,20 @@ export class ConversationController {
   }
 
   @Sse('chat')
-  async chatSse(@Body() body: ChatRequest): Promise<Observable<SseMessage>> {
-    let conversationId = body.conversationId;
-    const userId = body.userId || 'default';
+  async chatSse(
+    @Query('conversationId') conversationId?: string,
+    @Query('message') message?: string,
+    @Query('userId') userId?: string,
+  ): Promise<Observable<SseMessage>> {
+    const uid = userId || 'default';
+
+    if (!message?.trim()) {
+      throw new HttpException('Message cannot be empty', HttpStatus.BAD_REQUEST);
+    }
 
     if (!conversationId) {
       const conversation = await this.conversationService.create({
-        userId,
+        userId: uid,
       });
       conversationId = conversation.id;
     }
@@ -90,18 +97,18 @@ export class ConversationController {
     await this.conversationService.createMessage(
       conversationId,
       MessageRole.USER,
-      body.message,
+      message,
     );
-    await this.memoryService.saveShortTermMemory(conversationId, body.message);
+    await this.memoryService.saveShortTermMemory(conversationId, message);
 
     const memories = await this.memoryService.getRelevantMemories(
-      body.message,
+      message,
       conversationId,
-      userId,
+      uid,
     );
     const memoryContext = memories.map((m) => m.content).join('\n');
 
-    const queryEmbedding = await this.aiService.generateEmbedding(body.message);
+    const queryEmbedding = await this.aiService.generateEmbedding(message);
     const relevantChunks = await this.neo4jService.search(queryEmbedding, 5);
     const chunkContext = relevantChunks.map((c) => c.content).join('\n');
 
@@ -121,7 +128,7 @@ ${memoryContext}
       chatModel
         .stream([
           { role: 'system', content: systemPrompt },
-          { role: 'user', content: body.message },
+          { role: 'user', content: message },
         ])
         .then(async (stream) => {
           let fullResponse = '';
@@ -149,7 +156,7 @@ ${memoryContext}
             conversationId,
             fullResponse,
           );
-          this.memoryService.saveLongTermMemory(userId, fullResponse);
+          this.memoryService.saveLongTermMemory(uid, fullResponse);
 
           observer.next({
             type: 'done',

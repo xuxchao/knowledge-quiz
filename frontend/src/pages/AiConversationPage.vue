@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { Plus, MessageSquare, Mic, Send, Play, Trash2 } from 'lucide-vue-next';
 import MarkdownIt from 'markdown-it';
-import http from '@/core/http';
+import http, { baseURL } from '@/core/http';
 const md = new MarkdownIt();
 interface Message {
   id: string;
@@ -26,7 +26,7 @@ const isRecording = ref(false);
 const audioRef = ref<HTMLAudioElement | null>(null);
 const fetchConversations = async () => {
   try {
-    const response = await http.get(`/api/conversations?userId=default`);
+    const response = await http.get(`/api/conversations`);
     conversations.value = response.data.data || [];
     if (conversations.value.length > 0) {
       selectConversation(conversations.value[0]);
@@ -50,7 +50,7 @@ const createNewConversation = async () => {
   currentConversation.value = newConversation;
   messages.value = [];
 };
-const sendMessage = async () => {
+const sendMessage = () => {
   if (!inputMessage.value.trim() || isLoading.value) return;
   const messageText = inputMessage.value.trim();
   inputMessage.value = '';
@@ -69,49 +69,21 @@ const sendMessage = async () => {
     createdAt: new Date(),
   };
   messages.value.push(assistantMessage);
-  try {
-    const response = await http.post('/api/conversations/chat', {
-      conversationId: currentConversation.value?.id || undefined,
-      message: messageText,
-      userId: 'default',
-    });
-    const reader = response.data?.body?.getReader?.();
-    const decoder = new TextDecoder();
-    if (reader) {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value);
-        const lines = chunk.split('\n').filter(Boolean);
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line.replace(/^data:/, ''));
-            if (data.type === 'message') {
-              assistantMessage.content += data.content;
-              if (!currentConversation.value?.id) {
-                currentConversation.value = {
-                  ...currentConversation.value!,
-                  id: data.conversationId,
-                  userId: currentConversation.value?.userId || 'default',
-                };
-              }
-            } else if (data.type === 'done') {
-              if (!currentConversation.value?.id) {
-                currentConversation.value = {
-                  ...currentConversation.value!,
-                  id: data.conversationId,
-                  userId: currentConversation.value?.userId || 'default',
-                };
-              }
-              await fetchConversations();
-            }
-          } catch (e) {
-            console.error('Failed to parse SSE message:', e);
-          }
-        }
-      }
-    } else {
-      const data = response.data;
+
+  const params = new URLSearchParams({
+    message: messageText,
+    userId: 'default',
+  });
+
+  if (currentConversation.value?.id) {
+    params.set('conversationId', currentConversation.value.id);
+  }
+
+  const eventSource = new EventSource(`${baseURL}/api/conversations/chat?${params.toString()}`);
+
+  eventSource.onmessage = (event) => {
+    try {
+      const data = JSON.parse(event.data);
       if (data.type === 'message') {
         assistantMessage.content += data.content;
         if (!currentConversation.value?.id) {
@@ -129,15 +101,25 @@ const sendMessage = async () => {
             userId: currentConversation.value?.userId || 'default',
           };
         }
-        await fetchConversations();
+        fetchConversations();
+        eventSource.close();
+        isLoading.value = false;
       }
+    } catch (e) {
+      console.error('Failed to parse SSE message:', e);
     }
-  } catch (error) {
-    console.error('Failed to send message:', error);
+  };
+
+  eventSource.onerror = () => {
+    console.error('SSE connection error');
     assistantMessage.content = '抱歉，服务器出错了，请稍后再试。';
-  } finally {
+    eventSource.close();
     isLoading.value = false;
-  }
+  };
+
+  eventSource.onopen = () => {
+    console.log('SSE connection opened');
+  };
 };
 const deleteConversation = async (conversationId: string) => {
   if (!confirm('确定要删除这个会话吗？')) return;

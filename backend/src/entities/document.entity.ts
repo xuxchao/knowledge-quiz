@@ -39,13 +39,13 @@ export class Document {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column({ type: 'varchar', length: 255 })
+  @Column({ type: 'varchar' })
   name: string;
 
-  @Column({ type: 'varchar', length: 50, enum: FileType })
+  @Column({ type: 'varchar', enum: FileType })
   type: FileType;
 
-  @Column({ type: 'varchar', length: 512, nullable: true })
+  @Column({ type: 'varchar', nullable: true })
   path: string;
 
   @Column({ type: 'text', nullable: true })
@@ -53,7 +53,6 @@ export class Document {
 
   @Column({
     type: 'varchar',
-    length: 50,
     enum: DocumentStatus,
     default: DocumentStatus.UPLOADING,
   })

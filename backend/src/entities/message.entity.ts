@@ -23,10 +23,10 @@ export class Message {
   })
   conversation: Conversation;
 
-  @Column({ type: 'varchar', length: 36 })
+  @Column({ type: 'varchar' })
   conversationId: string;
 
-  @Column({ type: 'varchar', length: 20, enum: MessageRole })
+  @Column({ type: 'varchar', enum: MessageRole })
   role: MessageRole;
 
   @Column({ type: 'text' })

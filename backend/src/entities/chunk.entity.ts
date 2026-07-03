@@ -18,7 +18,7 @@ export class Chunk {
   })
   document: Document;
 
-  @Column({ type: 'varchar', length: 36 })
+  @Column({ type: 'varchar' })
   documentId: string;
 
   @Column({ type: 'text' })

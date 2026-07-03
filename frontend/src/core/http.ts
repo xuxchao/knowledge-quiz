@@ -4,7 +4,7 @@ import type { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'a
 const BACKEND_HOST = import.meta.env.VITE_BACKEND_HOST || 'localhost';
 const BACKEND_PORT = import.meta.env.VITE_BACKEND_PORT || '3000';
 
-const baseURL = `http://${BACKEND_HOST}:${BACKEND_PORT}`;
+export const baseURL = `http://${BACKEND_HOST}:${BACKEND_PORT}`;
 
 const instance: AxiosInstance = axios.create({
   baseURL,

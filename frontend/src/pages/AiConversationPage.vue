@@ -124,7 +124,7 @@ const sendMessage = () => {
 const deleteConversation = async (conversationId: string) => {
   if (!confirm('确定要删除这个会话吗？')) return;
   try {
-    await http.delete(`/api/conversations/${conversationId}`);
+    await http.delete(`/api/conversations/delete/${conversationId}`);
     await fetchConversations();
   } catch (error) {
     console.error('Failed to delete conversation:', error);

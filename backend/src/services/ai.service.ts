@@ -16,21 +16,25 @@ export class AiService implements OnModuleInit {
       'https://dashscope.aliyuncs.com/compatible-mode/v1',
     );
 
+    if (!apiKey) {
+      throw new Error('QWEN_API_KEY environment variable is not set. Please configure it in the .env file.');
+    }
+
     this.chatModel = new ChatOpenAI({
-      apiKey: apiKey || '',
+      apiKey,
       configuration: {
         baseURL: apiBaseUrl,
       },
-      model: 'qwen-max',
+      model: 'qwen-plus',
       temperature: 0.7,
       maxTokens: 4096,
       streaming: true,
     });
 
     this.embeddings = new OpenAIEmbeddings({
-      apiKey: apiKey || '',
+      apiKey,
       configuration: {
-        baseURL: `${apiBaseUrl}/embeddings`,
+        baseURL: apiBaseUrl,
       },
       model: 'text-embedding-v2',
     });

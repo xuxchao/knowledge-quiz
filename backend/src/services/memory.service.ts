@@ -5,7 +5,7 @@ export interface MemoryItem {
   id: string;
   content: string;
   metadata: Record<string, unknown>;
-  createdAt: Date;
+  createdAt: number;
 }
 
 @Injectable()
@@ -25,7 +25,7 @@ export class MemoryService {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       content,
       metadata: metadata || {},
-      createdAt: new Date(),
+      createdAt: Date.now(),
     };
 
     const existing = await this.redisService.get(key);
@@ -48,7 +48,14 @@ export class MemoryService {
   async getShortTermMemory(conversationId: string): Promise<MemoryItem[]> {
     const key = `memory:short:${conversationId}`;
     const existing = await this.redisService.get(key);
-    return existing ? (JSON.parse(existing) as MemoryItem[]) : [];
+    if (!existing) {
+      return [];
+    }
+    const memories: MemoryItem[] = JSON.parse(existing) as MemoryItem[];
+    return memories.map((item) => ({
+      ...item,
+      createdAt: typeof item.createdAt === 'string' ? new Date(item.createdAt).getTime() : item.createdAt,
+    }));
   }
 
   saveLongTermMemory(
@@ -60,7 +67,7 @@ export class MemoryService {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       content,
       metadata: metadata || {},
-      createdAt: new Date(),
+      createdAt: Date.now(),
     };
 
     const memories = this.longTermMemoryStore.get(userId) || [];
@@ -88,7 +95,7 @@ export class MemoryService {
     const allMemories = [...shortTerm, ...longTerm];
 
     return allMemories
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .sort((a, b) => b.createdAt - a.createdAt)
       .slice(0, 20);
   }
 

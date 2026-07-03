@@ -25,7 +25,7 @@ import { MemoryService } from './services/memory.service';
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: '.env',
+      envFilePath: '../.env',
     }),
     TypeOrmModule.forRootAsync({
       useFactory: typeOrmConfig,

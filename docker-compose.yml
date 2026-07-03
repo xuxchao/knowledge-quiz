@@ -1,6 +1,6 @@
 services:
   redis:
-    image: redis:7.4-alpine
+    image: redis:7-alpine
     container_name: knowledge-doc-redis
     restart: always
     ports:
@@ -11,6 +11,21 @@ services:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
     networks:
       - knowledge-doc-network
+
+  redisinsight:
+    image: redis/redisinsight:2.50
+    container_name: knowledge-doc-redisinsight
+    restart: always
+    ports:
+      - '5540:5540'
+    volumes:
+      - ./volumes/redisinsight-data:/data
+    environment:
+      - RI_HOST=0.0.0.0
+    networks:
+      - knowledge-doc-network
+    depends_on:
+      - redis
 
   postgres:
     image: postgres:16-alpine
@@ -73,6 +88,20 @@ services:
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
       - CLICKHOUSE_DB=${CLICKHOUSE_DB:-default}
+    networks:
+      - knowledge-doc-network
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: knowledge-doc-pgadmin
+    restart: always
+    ports:
+      - '8086:80'
+    volumes:
+      - ./volumes/pgadmin-data:/var/lib/pgadmin
+    environment:
+      - PGADMIN_DEFAULT_EMAIL=${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
+      - PGADMIN_DEFAULT_PASSWORD=${PGADMIN_DEFAULT_PASSWORD:-password}
     networks:
       - knowledge-doc-network
 

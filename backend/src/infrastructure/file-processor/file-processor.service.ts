@@ -10,6 +10,7 @@ import { FileType } from '../../entities/document.entity';
 import { AiService } from '../../ai/ai.service';
 import { SpeechService } from '../speech/speech.service';
 import { Neo4jService } from '../neo4j/neo4j.service';
+import { RustfsService } from '../rustfs/rustfs.service';
 
 import pdfParseModule from 'pdf-parse';
 
@@ -32,7 +33,17 @@ export class FileProcessorService {
     private aiService: AiService,
     private speechService: SpeechService,
     private neo4jService: Neo4jService,
+    private rustfsService: RustfsService,
   ) {}
+
+  async getFileBuffer(filePath: string): Promise<Buffer> {
+    if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+      return this.rustfsService.downloadFile(
+        filePath.split('/').slice(-2).join('/'),
+      );
+    }
+    return fs.readFileSync(filePath);
+  }
 
   async processFile(
     filePath: string,
@@ -74,7 +85,7 @@ export class FileProcessorService {
   async processPdf(
     filePath: string,
   ): Promise<{ text: string; metadata: Record<string, unknown> }> {
-    const dataBuffer = fs.readFileSync(filePath);
+    const dataBuffer = await this.getFileBuffer(filePath);
     const data = await pdfParse(dataBuffer);
     return {
       text: data.text || '',
@@ -89,18 +100,46 @@ export class FileProcessorService {
   async processDocx(
     filePath: string,
   ): Promise<{ text: string; metadata: Record<string, unknown> }> {
-    const result = await mammoth.extractRawText({ path: filePath });
+    let tempPath = filePath;
+    let needsCleanup = false;
+
+    if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+      const buffer = await this.getFileBuffer(filePath);
+      tempPath = path.join('/tmp', `docx_${Date.now()}.docx`);
+      fs.writeFileSync(tempPath, buffer);
+      needsCleanup = true;
+    }
+
+    const result = await mammoth.extractRawText({ path: tempPath });
+
+    if (needsCleanup) {
+      fs.unlinkSync(tempPath);
+    }
+
     return {
       text: result.value,
       metadata: {},
     };
   }
 
-  processSpreadsheet(filePath: string): {
+  async processSpreadsheet(filePath: string): Promise<{
     text: string;
     metadata: Record<string, unknown>;
-  } {
-    const workbook = xlsx.readFile(filePath);
+  }> {
+    let tempPath = filePath;
+    let needsCleanup = false;
+
+    if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+      const buffer = await this.getFileBuffer(filePath);
+      tempPath = path.join(
+        '/tmp',
+        `spreadsheet_${Date.now()}${path.extname(filePath)}`,
+      );
+      fs.writeFileSync(tempPath, buffer);
+      needsCleanup = true;
+    }
+
+    const workbook = xlsx.readFile(tempPath);
     let text = '';
 
     workbook.SheetNames.forEach((sheetName) => {
@@ -108,6 +147,10 @@ export class FileProcessorService {
       const sheetText = xlsx.utils.sheet_to_csv(sheet);
       text += `\n--- Sheet: ${sheetName} ---\n${sheetText}\n`;
     });
+
+    if (needsCleanup) {
+      fs.unlinkSync(tempPath);
+    }
 
     return {
       text,
@@ -128,34 +171,37 @@ export class FileProcessorService {
     };
   }
 
-  processTxt(filePath: string): {
+  async processTxt(filePath: string): Promise<{
     text: string;
     metadata: Record<string, unknown>;
-  } {
-    const text = fs.readFileSync(filePath, 'utf-8');
+  }> {
+    const buffer = await this.getFileBuffer(filePath);
     return {
-      text,
+      text: buffer.toString('utf-8'),
       metadata: {},
     };
   }
 
-  processMd(filePath: string): {
+  async processMd(filePath: string): Promise<{
     text: string;
     metadata: Record<string, unknown>;
-  } {
-    const text = fs.readFileSync(filePath, 'utf-8');
+  }> {
+    const buffer = await this.getFileBuffer(filePath);
     return {
-      text,
+      text: buffer.toString('utf-8'),
       metadata: {},
     };
   }
 
-  processJson(filePath: string): {
+  async processJson(filePath: string): Promise<{
     text: string;
     metadata: Record<string, unknown>;
-  } {
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const json = JSON.parse(content) as Record<string, unknown>;
+  }> {
+    const buffer = await this.getFileBuffer(filePath);
+    const json = JSON.parse(buffer.toString('utf-8')) as Record<
+      string,
+      unknown
+    >;
     return {
       text: JSON.stringify(json, null, 2),
       metadata: {
@@ -186,10 +232,25 @@ export class FileProcessorService {
   async processImage(
     filePath: string,
   ): Promise<{ text: string; metadata: Record<string, unknown> }> {
-    const image = sharp(filePath);
+    let tempPath = filePath;
+    let needsCleanup = false;
+    let imageBuffer: Buffer;
+
+    if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+      imageBuffer = await this.getFileBuffer(filePath);
+      tempPath = path.join(
+        '/tmp',
+        `image_${Date.now()}${path.extname(filePath)}`,
+      );
+      fs.writeFileSync(tempPath, imageBuffer);
+      needsCleanup = true;
+    } else {
+      imageBuffer = fs.readFileSync(filePath);
+    }
+
+    const image = sharp(tempPath);
     const metadata = await image.metadata();
 
-    const imageBuffer = fs.readFileSync(filePath);
     const imageBase64 = imageBuffer.toString('base64');
 
     const description = await this.aiService.getChatModel().invoke([
@@ -198,6 +259,10 @@ export class FileProcessorService {
         content: `请描述这张图片的内容：${imageBase64}`,
       },
     ]);
+
+    if (needsCleanup) {
+      fs.unlinkSync(tempPath);
+    }
 
     return {
       text:
@@ -216,7 +281,7 @@ export class FileProcessorService {
   async processAudio(
     filePath: string,
   ): Promise<{ text: string; metadata: Record<string, unknown> }> {
-    const audioBuffer = fs.readFileSync(filePath);
+    const audioBuffer = await this.getFileBuffer(filePath);
     const text = await this.speechService.speechToText(audioBuffer);
 
     return {
@@ -228,11 +293,11 @@ export class FileProcessorService {
     };
   }
 
-  processVideo(filePath: string): {
+  async processVideo(filePath: string): Promise<{
     text: string;
     metadata: Record<string, unknown>;
-  } {
-    const videoBuffer = fs.readFileSync(filePath);
+  }> {
+    const videoBuffer = await this.getFileBuffer(filePath);
 
     return {
       text: '视频处理需要额外的FFmpeg配置。使用占位文本。',

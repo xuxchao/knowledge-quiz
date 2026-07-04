@@ -121,6 +121,54 @@ services:
     networks:
       - knowledge-doc-network
 
+  rustfs:
+    image: rustfs/rustfs:1.0.0-alpha.77
+    container_name: knowledge-doc-rustfs
+    hostname: rustfs
+    restart: always
+    ports:
+      - '9004:9000'
+      - '9005:9001'
+    volumes:
+      - ./volumes/rustfs-data:/data
+      - rustfs-logs:/logs
+    environment:
+      - RUSTFS_VOLUMES=/data
+      - RUSTFS_ADDRESS=0.0.0.0:9000
+      - RUSTFS_CONSOLE_ENABLE=true
+      - RUSTFS_CONSOLE_ADDRESS=0.0.0.0:9001
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin}
+      - RUSTFS_OBS_LOGGER_LEVEL=debug
+      - RUSTFS_OBS_LOG_DIRECTORY=/logs
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:9000/health && curl -f http://localhost:9001/rustfs/console/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    networks:
+      - knowledge-doc-network
+
+  mc:
+    depends_on:
+      - rustfs
+    image: minio/mc
+    container_name: knowledge-doc-mc
+    networks:
+      - knowledge-doc-network
+    environment:
+      - AWS_ACCESS_KEY_ID=${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      - AWS_SECRET_ACCESS_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin}
+      - AWS_REGION=us-east-1
+    entrypoint: |
+      /bin/sh -c "
+      until (/usr/bin/mc alias set rustfs http://rustfs:9000 ${RUSTFS_ACCESS_KEY:-rustfsadmin} ${RUSTFS_SECRET_KEY:-rustfsadmin}) do echo '...waiting...' && sleep 1; done;
+      /usr/bin/mc mb rustfs/documents || true;
+      /usr/bin/mc policy set public rustfs/documents;
+      tail -f /dev/null
+      "
+
   langfuse:
     image: langfuse/langfuse:latest
     container_name: knowledge-doc-langfuse
@@ -134,13 +182,13 @@ services:
       - clickhouse
       - minio
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-knowledge_doc}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password}@postgres:5432/${LANGFUSE_DB:-langfuse}
       - REDIS_URL=redis://redis:6379
-      - CLICKHOUSE_URL=http://clickhouse:8123/${CLICKHOUSE_DB:-default}
-      - CLICKHOUSE_MIGRATION_URL=clickhouse://${CLICKHOUSE_USER:-default}:${CLICKHOUSE_PASSWORD:-}@clickhouse:9000/${CLICKHOUSE_DB:-default}
+      - CLICKHOUSE_URL=http://clickhouse:8123
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://clickhouse:9000
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
-      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-default}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-langfuse}
       - CLICKHOUSE_CLUSTER_ENABLED=${CLICKHOUSE_CLUSTER_ENABLED:-false}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-langfuse-secret-key}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-langfuse-public-key}
@@ -155,6 +203,9 @@ services:
       - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=${LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE:-true}
     networks:
       - knowledge-doc-network
+
+volumes:
+  rustfs-logs:
 
 networks:
   knowledge-doc-network:

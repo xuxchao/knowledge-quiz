@@ -13,6 +13,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentService } from './document.service';
 import { FileProcessorService } from '../infrastructure/file-processor/file-processor.service';
+import { RustfsService } from '../infrastructure/rustfs/rustfs.service';
 import {
   Document,
   FileType,
@@ -49,6 +50,7 @@ export class DocumentController {
   constructor(
     private documentService: DocumentService,
     private fileProcessorService: FileProcessorService,
+    private rustfsService: RustfsService,
   ) {}
 
   @Post()
@@ -62,6 +64,7 @@ export class DocumentController {
     );
 
     let document: Document;
+    let rustfsUrl: string | undefined;
 
     if (body.url) {
       document = await this.documentService.create({
@@ -79,9 +82,20 @@ export class DocumentController {
       document = await this.documentService.create({
         name: file.originalname,
         type: fileType,
-        path: file.path,
+        path: '',
         status: DocumentStatus.PROCESSING,
         fileSize: file.size,
+      });
+
+      const rustfsKey = `documents/${document.id}/${file.originalname}`;
+      rustfsUrl = await this.rustfsService.uploadFile(
+        rustfsKey,
+        file.buffer,
+        file.mimetype,
+      );
+
+      await this.documentService.update(document.id, {
+        path: rustfsUrl,
       });
     } else {
       throw new Error('No file or URL provided');
@@ -89,10 +103,10 @@ export class DocumentController {
 
     try {
       this.logger.debug(
-        `[uploadFile] 进入文件处理流程 - body.url: ${body.url ? '***URL***' : 'undefined'}, file.path: ${file ? file.path : 'undefined'}, document.id: ${document.id}, document.type: ${document.type}`,
+        `[uploadFile] 进入文件处理流程 - body.url: ${body.url ? '***URL***' : 'undefined'}, rustfsUrl: ${rustfsUrl ? '***REDACTED***' : 'undefined'}, document.id: ${document.id}, document.type: ${document.type}`,
       );
 
-      const filePath = body.url ? body.url : file.path;
+      const filePath = body.url ? body.url : rustfsUrl || file.path;
       const fileName = body.url ? body.url : file.originalname;
 
       this.logger.debug(

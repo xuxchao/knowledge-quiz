@@ -114,6 +114,10 @@ describe('DocumentController', () => {
     rustfsService = module.get<RustfsService>(RustfsService);
   });
 
+  afterEach(() => {
+    jest.resetAllMocks();
+  });
+
   it('should be defined', () => {
     expect(controller).toBeDefined();
   });

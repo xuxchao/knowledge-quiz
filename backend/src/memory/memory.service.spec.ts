@@ -27,6 +27,10 @@ describe('MemoryService', () => {
     redisService = module.get<RedisService>(RedisService);
   });
 
+  afterEach(() => {
+    jest.resetAllMocks();
+  });
+
   it('should be defined', () => {
     expect(service).toBeDefined();
   });
@@ -53,7 +57,9 @@ describe('MemoryService', () => {
       jest.spyOn(redisService, 'get').mockResolvedValue(null);
       const result = await service.getShortTermMemory('non-existent');
       expect(result).toEqual([]);
-      expect(redisService.get).toHaveBeenCalledWith('memory:short:non-existent');
+      expect(redisService.get).toHaveBeenCalledWith(
+        'memory:short:non-existent',
+      );
     });
 
     it('should return memories if they exist', async () => {

@@ -7,8 +7,8 @@ import {
   HeadObjectCommand,
   CreateBucketCommand,
   ListBucketsCommand,
+  PutObjectCommand,
 } from '@aws-sdk/client-s3';
-import { Upload } from '@aws-sdk/lib-storage';
 import { Readable } from 'stream';
 
 @Injectable()
@@ -31,10 +31,11 @@ export class RustfsService {
       'rustfsadmin',
     );
     const region = configService.get<string>('RUSTFS_REGION', 'us-east-1');
-    const forcePathStyle = configService.get<boolean>(
+    const forcePathStyleRaw = configService.get<string>(
       'RUSTFS_FORCE_PATH_STYLE',
-      true,
+      'true',
     );
+    // const forcePathStyle = forcePathStyleRaw === 'true';
 
     this.bucket = configService.get<string>('RUSTFS_BUCKET', 'documents');
 
@@ -45,8 +46,12 @@ export class RustfsService {
         secretAccessKey: secretKey,
       },
       region,
-      forcePathStyle,
+      forcePathStyle: true,
     });
+
+    this.logger.debug(
+      `S3Client initialized: endpoint=${endpoint}, forcePathStyle=${true}, bucket=${this.bucket}`,
+    );
 
     void this.initializeBucket();
   }
@@ -81,19 +86,14 @@ export class RustfsService {
     this.logger.debug(`Uploading file to RustFS: ${key}`);
 
     try {
-      const params = {
+      const command = new PutObjectCommand({
         Bucket: this.bucket,
         Key: key,
         Body: file,
         ContentType: contentType,
-      };
-
-      const upload = new Upload({
-        client: this.s3Client,
-        params,
       });
 
-      await upload.done();
+      await this.s3Client.send(command);
 
       const url = `${this.configService.get<string>('RUSTFS_ENDPOINT')}/${this.bucket}/${key}`;
       this.logger.debug(`File uploaded successfully: ${url}`);
@@ -172,5 +172,9 @@ export class RustfsService {
 
   getFileUrl(key: string): string {
     return `${this.configService.get<string>('RUSTFS_ENDPOINT')}/${this.bucket}/${key}`;
+  }
+
+  getBucket(): string {
+    return this.bucket;
   }
 }

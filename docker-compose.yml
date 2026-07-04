@@ -9,6 +9,11 @@ services:
       - ./volumes/redis-data:/data
     environment:
       - REDIS_PASSWORD=${REDIS_PASSWORD:-}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     networks:
       - knowledge-doc-network
 
@@ -35,10 +40,17 @@ services:
       - '5432:5432'
     volumes:
       - ./volumes/postgres-data:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-knowledge_doc}
       - POSTGRES_USER=${POSTGRES_USER:-admin}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-knowledge_doc}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - knowledge-doc-network
 
@@ -83,11 +95,18 @@ services:
       - '8123:8123'
       - '9000:9000'
     volumes:
-      - ./volumes/clickhouse-data:/var/lib/clickhouse
+      - clickhouse-data:/var/lib/clickhouse
+      - ./docker/clickhouse:/etc/clickhouse-server/config.d
     environment:
-      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
-      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-default}
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=langfuse123
+      - CLICKHOUSE_DB=langfuse
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--password=langfuse123", "--query=SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - knowledge-doc-network
 
@@ -118,6 +137,12 @@ services:
       - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
       - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin}
     command: server --console-address ":9001" /data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     networks:
       - knowledge-doc-network
 
@@ -177,19 +202,25 @@ services:
       - '3005:3000'
       - '8085:8080'
     depends_on:
-      - postgres
-      - redis
-      - clickhouse
-      - minio
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password}@postgres:5432/${LANGFUSE_DB:-langfuse}
       - REDIS_URL=redis://redis:6379
-      - CLICKHOUSE_URL=http://clickhouse:8123
-      - CLICKHOUSE_MIGRATION_URL=clickhouse://clickhouse:9000
-      - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
-      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-langfuse}
-      - CLICKHOUSE_CLUSTER_ENABLED=${CLICKHOUSE_CLUSTER_ENABLED:-false}
+      - CLICKHOUSE_URL=http://default:langfuse123@clickhouse:8123/langfuse
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://default:langfuse123@clickhouse:9000
+      - CLICKHOUSE_USER=default
+      - CLICKHOUSE_PASSWORD=langfuse123
+      - CLICKHOUSE_DB=langfuse
+      - CLICKHOUSE_CLUSTER_ENABLED=false
+      
+      
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-langfuse-secret-key}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-langfuse-public-key}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-nextauth-secret}
@@ -206,6 +237,7 @@ services:
 
 volumes:
   rustfs-logs:
+  clickhouse-data:
 
 networks:
   knowledge-doc-network:

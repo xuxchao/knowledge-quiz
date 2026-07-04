@@ -12,20 +12,7 @@ import { SpeechService } from '../speech/speech.service';
 import { Neo4jService } from '../neo4j/neo4j.service';
 import { RustfsService } from '../rustfs/rustfs.service';
 
-import pdfParseModule from 'pdf-parse';
-
-const pdfParse = pdfParseModule as unknown as (
-  data: Buffer,
-) => Promise<PdfParseResult>;
-
-interface PdfParseResult {
-  text: string;
-  info: {
-    Author?: string;
-    Title?: string;
-  };
-  numpages: number;
-}
+import { PDFParse } from 'pdf-parse';
 
 @Injectable()
 export class FileProcessorService {
@@ -38,9 +25,13 @@ export class FileProcessorService {
 
   async getFileBuffer(filePath: string): Promise<Buffer> {
     if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
-      return this.rustfsService.downloadFile(
-        filePath.split('/').slice(-2).join('/'),
-      );
+      const url = new URL(filePath);
+      const fullPath = decodeURIComponent(url.pathname.substring(1));
+      const bucket = this.rustfsService.getBucket();
+      const key = fullPath.startsWith(`${bucket}/`)
+        ? fullPath.substring(bucket.length + 1)
+        : fullPath;
+      return this.rustfsService.downloadFile(key);
     }
     return fs.readFileSync(filePath);
   }
@@ -86,13 +77,16 @@ export class FileProcessorService {
     filePath: string,
   ): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const dataBuffer = await this.getFileBuffer(filePath);
-    const data = await pdfParse(dataBuffer);
+    const pdf = new PDFParse({ data: dataBuffer });
+    const textResult = await pdf.getText();
+    const infoResult = await pdf.getInfo();
+    await pdf.destroy();
     return {
-      text: data.text || '',
+      text: textResult.text || '',
       metadata: {
-        author: data.info.Author,
-        title: data.info.Title,
-        numPages: data.numpages,
+        author: infoResult.info?.Author,
+        title: infoResult.info?.Title,
+        numPages: infoResult.total,
       },
     };
   }

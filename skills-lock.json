@@ -12,6 +12,12 @@
       "sourceType": "github",
       "skillPath": "skills/vue-best-practices/SKILL.md",
       "computedHash": "3df585ad31aec78fe55c56c1411262737e6b231677a3153dec512a882fde80cd"
+    },
+    "langfuse-troubleshooter": {
+      "source": ".agents/skills/langfuse-troubleshooter",
+      "sourceType": "local",
+      "skillPath": "SKILL.md",
+      "computedHash": "D189770D164C22EB8161BB1AC7B7555A14F21813548EA9129AD8C0E291BB479D"
     }
   }
 }

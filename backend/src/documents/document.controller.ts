@@ -87,7 +87,7 @@ export class DocumentController {
         fileSize: file.size,
       });
 
-      const rustfsKey = `documents/${document.id}/${file.originalname}`;
+      const rustfsKey = `${document.id}/${file.originalname}`;
       rustfsUrl = await this.rustfsService.uploadFile(
         rustfsKey,
         file.buffer,

@@ -51,14 +51,18 @@ export class MemoryService {
     if (!existing) {
       return [];
     }
-    const memories: MemoryItem[] = JSON.parse(existing) as MemoryItem[];
-    return memories.map((item) => ({
-      ...item,
-      createdAt:
-        typeof item.createdAt === 'string'
-          ? new Date(item.createdAt).getTime()
-          : item.createdAt,
-    }));
+    try {
+      const memories: MemoryItem[] = JSON.parse(existing) as MemoryItem[];
+      return memories.map((item) => ({
+        ...item,
+        createdAt:
+          typeof item.createdAt === 'string'
+            ? new Date(item.createdAt).getTime()
+            : item.createdAt,
+      }));
+    } catch {
+      return [];
+    }
   }
 
   saveLongTermMemory(

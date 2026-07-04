@@ -33,9 +33,18 @@ describe('MemoryService', () => {
 
   describe('saveShortTermMemory', () => {
     it('should save memory successfully', async () => {
-      await expect(
-        service.saveShortTermMemory('conv-1', 'test content'),
-      ).resolves.not.toThrow();
+      await service.saveShortTermMemory('conv-1', 'test content');
+      expect(redisService.set).toHaveBeenCalled();
+    });
+
+    it('should handle empty content', async () => {
+      await service.saveShortTermMemory('conv-1', '');
+      expect(redisService.set).toHaveBeenCalled();
+    });
+
+    it('should handle empty conversation id', async () => {
+      await service.saveShortTermMemory('', 'test content');
+      expect(redisService.set).toHaveBeenCalled();
     });
   });
 
@@ -44,25 +53,56 @@ describe('MemoryService', () => {
       jest.spyOn(redisService, 'get').mockResolvedValue(null);
       const result = await service.getShortTermMemory('non-existent');
       expect(result).toEqual([]);
+      expect(redisService.get).toHaveBeenCalledWith('memory:short:non-existent');
     });
 
     it('should return memories if they exist', async () => {
       const mockMemories = [
-        { id: '1', content: 'test', metadata: {}, createdAt: Date.now() },
+        { id: '1', content: 'test', metadata: {}, createdAt: 1234567890 },
       ];
       jest
         .spyOn(redisService, 'get')
         .mockResolvedValue(JSON.stringify(mockMemories));
       const result = await service.getShortTermMemory('conv-1');
-      expect(Array.isArray(result)).toBe(true);
+      expect(result).toEqual(mockMemories);
+      expect(result).toHaveLength(1);
+      expect(result[0].content).toBe('test');
+      expect(result[0].id).toBe('1');
+      expect(redisService.get).toHaveBeenCalledWith('memory:short:conv-1');
+    });
+
+    it('should return empty array if redis returns invalid JSON', async () => {
+      jest.spyOn(redisService, 'get').mockResolvedValue('invalid json');
+      const result = await service.getShortTermMemory('conv-1');
+      expect(result).toEqual([]);
+    });
+
+    it('should handle empty conversation id', async () => {
+      jest.spyOn(redisService, 'get').mockResolvedValue(null);
+      const result = await service.getShortTermMemory('');
+      expect(result).toEqual([]);
     });
   });
 
   describe('saveLongTermMemory', () => {
     it('should save memory successfully', () => {
-      expect(() =>
-        service.saveLongTermMemory('user-1', 'test content'),
-      ).not.toThrow();
+      service.saveLongTermMemory('user-1', 'test content');
+      const result = service.getLongTermMemory('user-1');
+      expect(result).toHaveLength(1);
+      expect(result[0].content).toBe('test content');
+    });
+
+    it('should handle empty content', () => {
+      service.saveLongTermMemory('user-1', '');
+      const result = service.getLongTermMemory('user-1');
+      expect(result).toHaveLength(1);
+      expect(result[0].content).toBe('');
+    });
+
+    it('should handle empty user id', () => {
+      service.saveLongTermMemory('', 'test content');
+      const result = service.getLongTermMemory('');
+      expect(result).toHaveLength(1);
     });
   });
 
@@ -76,7 +116,13 @@ describe('MemoryService', () => {
       service.saveLongTermMemory('user-1', 'test content');
       const result = service.getLongTermMemory('user-1');
       expect(Array.isArray(result)).toBe(true);
-      expect(result.length).toBeGreaterThan(0);
+      expect(result.length).toBe(1);
+      expect(result[0].content).toBe('test content');
+    });
+
+    it('should handle empty user id', () => {
+      const result = service.getLongTermMemory('');
+      expect(result).toEqual([]);
     });
   });
 
@@ -90,21 +136,50 @@ describe('MemoryService', () => {
       );
       expect(Array.isArray(result)).toBe(true);
     });
+
+    it('should handle empty query', async () => {
+      jest.spyOn(redisService, 'get').mockResolvedValue(null);
+      const result = await service.getRelevantMemories('', 'conv-1', 'user-1');
+      expect(Array.isArray(result)).toBe(true);
+    });
+
+    it('should handle empty conversation id', async () => {
+      jest.spyOn(redisService, 'get').mockResolvedValue(null);
+      const result = await service.getRelevantMemories('test', '', 'user-1');
+      expect(Array.isArray(result)).toBe(true);
+    });
   });
 
   describe('clearShortTermMemory', () => {
     it('should clear memory successfully', async () => {
       jest.spyOn(redisService, 'del').mockResolvedValue();
-      await expect(
-        service.clearShortTermMemory('conv-1'),
-      ).resolves.not.toThrow();
+      await service.clearShortTermMemory('conv-1');
+      expect(redisService.del).toHaveBeenCalledWith('memory:short:conv-1');
+    });
+
+    it('should handle empty conversation id', async () => {
+      jest.spyOn(redisService, 'del').mockResolvedValue();
+      await service.clearShortTermMemory('');
+      expect(redisService.del).toHaveBeenCalled();
     });
   });
 
   describe('clearLongTermMemory', () => {
     it('should clear memory successfully', () => {
       service.saveLongTermMemory('user-1', 'test content');
-      expect(() => service.clearLongTermMemory('user-1')).not.toThrow();
+      const beforeResult = service.getLongTermMemory('user-1');
+      expect(beforeResult.length).toBe(1);
+
+      service.clearLongTermMemory('user-1');
+      const afterResult = service.getLongTermMemory('user-1');
+      expect(afterResult).toEqual([]);
+    });
+
+    it('should handle empty user id', () => {
+      service.saveLongTermMemory('', 'test content');
+      service.clearLongTermMemory('');
+      const result = service.getLongTermMemory('');
+      expect(result).toEqual([]);
     });
   });
 });

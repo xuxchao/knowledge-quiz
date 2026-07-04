@@ -163,7 +163,8 @@ export class DocumentController {
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
   ) {
-    const skip = (page - 1) * limit;
+    const validPage = Math.max(1, page);
+    const skip = (validPage - 1) * limit;
     const [documents, total] = await this.documentService.findAll(
       name,
       skip,

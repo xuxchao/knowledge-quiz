@@ -37,7 +37,7 @@ describe('ConversationController', () => {
 
   describe('listConversations', () => {
     it('should return conversations list', async () => {
-      const mockConversations = [];
+      const mockConversations = [{ id: '1', messages: [] }, { id: '2', messages: [] }];
 
       jest
         .spyOn(conversationService, 'findAll')
@@ -49,12 +49,41 @@ describe('ConversationController', () => {
         success: true,
         data: mockConversations,
       });
+      expect(conversationService.findAll).toHaveBeenCalledWith('user-1');
+    });
+
+    it('should return empty list if no conversations', async () => {
+      jest.spyOn(conversationService, 'findAll').mockResolvedValue([]);
+
+      const result = await controller.listConversations('user-1');
+
+      expect(result).toEqual({
+        success: true,
+        data: [],
+      });
+    });
+
+    it('should handle empty user id', async () => {
+      jest.spyOn(conversationService, 'findAll').mockResolvedValue([]);
+
+      const result = await controller.listConversations('');
+
+      expect(result).toEqual({
+        success: true,
+        data: [],
+      });
     });
   });
 
   describe('getConversation', () => {
     it('should return conversation by id', async () => {
-      const mockConversation = { id: '1', messages: [] };
+      const mockConversation = {
+        id: '1',
+        messages: [
+          { id: 'm1', content: 'Hello' },
+          { id: 'm2', content: 'Hi' },
+        ],
+      };
 
       jest
         .spyOn(conversationService, 'findById')
@@ -66,12 +95,32 @@ describe('ConversationController', () => {
         success: true,
         data: mockConversation,
       });
+      expect(result.data.messages).toHaveLength(2);
+      expect(conversationService.findById).toHaveBeenCalledWith('1');
     });
 
     it('should throw error if conversation not found', async () => {
       jest.spyOn(conversationService, 'findById').mockResolvedValue(null);
 
-      await expect(controller.getConversation('1')).rejects.toThrow();
+      await expect(controller.getConversation('non-existent')).rejects.toThrow();
+    });
+
+    it('should handle empty id', async () => {
+      jest.spyOn(conversationService, 'findById').mockResolvedValue(null);
+
+      await expect(controller.getConversation('')).rejects.toThrow();
+    });
+
+    it('should handle conversation with no messages', async () => {
+      const mockConversation = { id: '1', messages: [] };
+
+      jest
+        .spyOn(conversationService, 'findById')
+        .mockResolvedValue(mockConversation as any);
+
+      const result = await controller.getConversation('1');
+
+      expect(result.data.messages).toEqual([]);
     });
   });
 
@@ -90,12 +139,20 @@ describe('ConversationController', () => {
         success: true,
         message: 'Conversation deleted successfully',
       });
+      expect(conversationService.findById).toHaveBeenCalledWith('1');
+      expect(conversationService.delete).toHaveBeenCalledWith('1');
     });
 
     it('should throw error if conversation not found', async () => {
       jest.spyOn(conversationService, 'findById').mockResolvedValue(null);
 
-      await expect(controller.deleteConversation('1')).rejects.toThrow();
+      await expect(controller.deleteConversation('non-existent')).rejects.toThrow();
+    });
+
+    it('should handle empty id', async () => {
+      jest.spyOn(conversationService, 'findById').mockResolvedValue(null);
+
+      await expect(controller.deleteConversation('')).rejects.toThrow();
     });
   });
 });

@@ -1,6 +1,18 @@
 {
   "version": 1,
   "skills": {
+    "javascript-typescript-jest": {
+      "source": "github/awesome-copilot",
+      "sourceType": "github",
+      "skillPath": "skills/javascript-typescript-jest/SKILL.md",
+      "computedHash": "0073d19ab0275eb6a8200aced6789a53744667bd717b5d1f44ce708a1740e5d4"
+    },
+    "langfuse-troubleshooter": {
+      "source": ".agents/skills/langfuse-troubleshooter",
+      "sourceType": "local",
+      "skillPath": "SKILL.md",
+      "computedHash": "D189770D164C22EB8161BB1AC7B7555A14F21813548EA9129AD8C0E291BB479D"
+    },
     "nestjs-best-practices": {
       "source": "kadajett/agent-nestjs-skills",
       "sourceType": "github",
@@ -12,12 +24,6 @@
       "sourceType": "github",
       "skillPath": "skills/vue-best-practices/SKILL.md",
       "computedHash": "3df585ad31aec78fe55c56c1411262737e6b231677a3153dec512a882fde80cd"
-    },
-    "langfuse-troubleshooter": {
-      "source": ".agents/skills/langfuse-troubleshooter",
-      "sourceType": "local",
-      "skillPath": "SKILL.md",
-      "computedHash": "D189770D164C22EB8161BB1AC7B7555A14F21813548EA9129AD8C0E291BB479D"
     }
   }
 }

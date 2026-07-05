@@ -1,18 +1,7 @@
 import { Injectable, LoggerService as NestLoggerService } from '@nestjs/common';
 import { getCallSiteInfo } from './callsite.util';
-import {
-  LogLevel,
-  LogEntry,
-  formatJson,
-  formatConsole,
-  createLogEntry,
-} from './formatters';
-import {
-  LoggerConfigRegistry,
-  shouldLog,
-  LoggerConfig,
-  ModuleConfig,
-} from './logger.config';
+import { LogLevel, LogEntry, formatJson, formatConsole, createLogEntry } from './formatters';
+import { LoggerConfigRegistry, shouldLog, LoggerConfig, ModuleConfig } from './logger.config';
 
 @Injectable()
 export class LoggerService implements NestLoggerService {
@@ -56,12 +45,7 @@ export class LoggerService implements NestLoggerService {
     this.writeLog(message, 'DEBUG', context);
   }
 
-  private writeLog(
-    message: string,
-    level: LogLevel,
-    context?: string,
-    stackTrace?: string,
-  ): void {
+  private writeLog(message: string, level: LogLevel, context?: string, stackTrace?: string): void {
     const moduleName = context || this.moduleName;
 
     if (!this.configRegistry.isModuleEnabled(moduleName)) {
@@ -74,22 +58,14 @@ export class LoggerService implements NestLoggerService {
     }
 
     const callSite = getCallSiteInfo(4);
-    const entry = createLogEntry(
-      level,
-      moduleName,
-      message,
-      callSite,
-      undefined,
-      stackTrace,
-    );
+    const entry = createLogEntry(level, moduleName, message, callSite, undefined, stackTrace);
 
     this.output(entry);
   }
 
   private output(entry: LogEntry): void {
     const format = this.configRegistry.getOutputFormat();
-    const formatted =
-      format === 'json' ? formatJson(entry) : formatConsole(entry);
+    const formatted = format === 'json' ? formatJson(entry) : formatConsole(entry);
 
     switch (entry.level) {
       case 'DEBUG':
@@ -118,13 +94,9 @@ export class LoggerService implements NestLoggerService {
       return result;
     } catch (error: unknown) {
       const duration = Date.now() - startTime;
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       const stackTrace = error instanceof Error ? error.stack : undefined;
-      this.error(
-        `步骤执行失败 - ${stepName}，耗时: ${duration}ms，错误: ${errorMessage}`,
-        stackTrace,
-      );
+      this.error(`步骤执行失败 - ${stepName}，耗时: ${duration}ms，错误: ${errorMessage}`, stackTrace);
       throw error;
     }
   }
@@ -140,22 +112,14 @@ export class LoggerService implements NestLoggerService {
       return result;
     } catch (error: unknown) {
       const duration = Date.now() - startTime;
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       const stackTrace = error instanceof Error ? error.stack : undefined;
-      this.error(
-        `步骤执行失败 - ${stepName}，耗时: ${duration}ms，错误: ${errorMessage}`,
-        stackTrace,
-      );
+      this.error(`步骤执行失败 - ${stepName}，耗时: ${duration}ms，错误: ${errorMessage}`, stackTrace);
       throw error;
     }
   }
 
-  async serviceCall<T>(
-    serviceName: string,
-    methodName: string,
-    fn: () => Promise<T>,
-  ): Promise<T> {
+  async serviceCall<T>(serviceName: string, methodName: string, fn: () => Promise<T>): Promise<T> {
     const fullName = `${serviceName}.${methodName}`;
     this.debug(`服务调用开始 - ${fullName}`);
     const startTime = Date.now();
@@ -167,13 +131,9 @@ export class LoggerService implements NestLoggerService {
       return result;
     } catch (error: unknown) {
       const duration = Date.now() - startTime;
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       const stackTrace = error instanceof Error ? error.stack : undefined;
-      this.error(
-        `服务调用异常 - ${fullName}，耗时: ${duration}ms，错误: ${errorMessage}`,
-        stackTrace,
-      );
+      this.error(`服务调用异常 - ${fullName}，耗时: ${duration}ms，错误: ${errorMessage}`, stackTrace);
       throw error;
     }
   }

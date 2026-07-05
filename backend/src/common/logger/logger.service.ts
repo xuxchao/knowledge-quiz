@@ -1,0 +1,213 @@
+import { Injectable, LoggerService as NestLoggerService } from '@nestjs/common';
+import { getCallSiteInfo } from './callsite.util';
+import {
+  LogLevel,
+  LogEntry,
+  formatJson,
+  formatConsole,
+  createLogEntry,
+} from './formatters';
+import {
+  LoggerConfigRegistry,
+  shouldLog,
+  LoggerConfig,
+  ModuleConfig,
+} from './logger.config';
+
+@Injectable()
+export class LoggerService implements NestLoggerService {
+  private configRegistry: LoggerConfigRegistry;
+  private moduleName: string;
+
+  constructor(context?: string) {
+    this.moduleName = context || 'Global';
+    this.configRegistry = new LoggerConfigRegistry();
+  }
+
+  setConfigRegistry(registry: LoggerConfigRegistry): void {
+    this.configRegistry = registry;
+  }
+
+  getConfigRegistry(): LoggerConfigRegistry {
+    return this.configRegistry;
+  }
+
+  debug(message: string, context?: string): void {
+    this.writeLog(message, 'DEBUG', context);
+  }
+
+  info(message: string, context?: string): void {
+    this.writeLog(message, 'INFO', context);
+  }
+
+  log(message: string, context?: string): void {
+    this.writeLog(message, 'INFO', context);
+  }
+
+  warn(message: string, context?: string): void {
+    this.writeLog(message, 'WARN', context);
+  }
+
+  error(message: string, stack?: string, context?: string): void {
+    this.writeLog(message, 'ERROR', context, stack);
+  }
+
+  verbose(message: string, context?: string): void {
+    this.writeLog(message, 'DEBUG', context);
+  }
+
+  private writeLog(
+    message: string,
+    level: LogLevel,
+    context?: string,
+    stackTrace?: string,
+  ): void {
+    const moduleName = context || this.moduleName;
+
+    if (!this.configRegistry.isModuleEnabled(moduleName)) {
+      return;
+    }
+
+    const moduleLevel = this.configRegistry.getModuleLevel(moduleName);
+    if (!shouldLog(level, moduleLevel)) {
+      return;
+    }
+
+    const callSite = getCallSiteInfo(4);
+    const entry = createLogEntry(
+      level,
+      moduleName,
+      message,
+      callSite,
+      undefined,
+      stackTrace,
+    );
+
+    this.output(entry);
+  }
+
+  private output(entry: LogEntry): void {
+    const format = this.configRegistry.getOutputFormat();
+    const formatted =
+      format === 'json' ? formatJson(entry) : formatConsole(entry);
+
+    switch (entry.level) {
+      case 'DEBUG':
+        console.debug(formatted);
+        break;
+      case 'INFO':
+        console.log(formatted);
+        break;
+      case 'WARN':
+        console.warn(formatted);
+        break;
+      case 'ERROR':
+        console.error(formatted);
+        break;
+    }
+  }
+
+  step<T>(stepName: string, fn: () => T): T {
+    this.debug(`步骤开始 - ${stepName}`);
+    const startTime = Date.now();
+
+    try {
+      const result = fn();
+      const duration = Date.now() - startTime;
+      this.debug(`步骤成功完成 - ${stepName}，耗时: ${duration}ms`);
+      return result;
+    } catch (error: unknown) {
+      const duration = Date.now() - startTime;
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const stackTrace = error instanceof Error ? error.stack : undefined;
+      this.error(
+        `步骤执行失败 - ${stepName}，耗时: ${duration}ms，错误: ${errorMessage}`,
+        stackTrace,
+      );
+      throw error;
+    }
+  }
+
+  async stepAsync<T>(stepName: string, fn: () => Promise<T>): Promise<T> {
+    this.debug(`步骤开始 - ${stepName}`);
+    const startTime = Date.now();
+
+    try {
+      const result = await fn();
+      const duration = Date.now() - startTime;
+      this.debug(`步骤成功完成 - ${stepName}，耗时: ${duration}ms`);
+      return result;
+    } catch (error: unknown) {
+      const duration = Date.now() - startTime;
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const stackTrace = error instanceof Error ? error.stack : undefined;
+      this.error(
+        `步骤执行失败 - ${stepName}，耗时: ${duration}ms，错误: ${errorMessage}`,
+        stackTrace,
+      );
+      throw error;
+    }
+  }
+
+  async serviceCall<T>(
+    serviceName: string,
+    methodName: string,
+    fn: () => Promise<T>,
+  ): Promise<T> {
+    const fullName = `${serviceName}.${methodName}`;
+    this.debug(`服务调用开始 - ${fullName}`);
+    const startTime = Date.now();
+
+    try {
+      const result = await fn();
+      const duration = Date.now() - startTime;
+      this.debug(`服务调用成功 - ${fullName}，耗时: ${duration}ms`);
+      return result;
+    } catch (error: unknown) {
+      const duration = Date.now() - startTime;
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const stackTrace = error instanceof Error ? error.stack : undefined;
+      this.error(
+        `服务调用异常 - ${fullName}，耗时: ${duration}ms，错误: ${errorMessage}`,
+        stackTrace,
+      );
+      throw error;
+    }
+  }
+
+  enableModule(moduleName: string): void {
+    this.configRegistry.enableModule(moduleName);
+    this.info(`模块日志已启用 - ${moduleName}`);
+  }
+
+  disableModule(moduleName: string): void {
+    this.configRegistry.disableModule(moduleName);
+    this.info(`模块日志已禁用 - ${moduleName}`);
+  }
+
+  setModuleLevel(moduleName: string, level: LogLevel): void {
+    this.configRegistry.setModuleLevel(moduleName, level);
+    this.info(`模块日志级别已更改 - ${moduleName}，新级别: ${level}`);
+  }
+
+  setGlobalLevel(level: LogLevel): void {
+    this.configRegistry.setGlobalLevel(level);
+    this.info(`全局日志级别已设置为: ${level}`);
+  }
+
+  setOutputFormat(format: 'console' | 'json'): void {
+    this.configRegistry.setOutputFormat(format);
+    this.info(`日志输出格式已更改为: ${format}`);
+  }
+
+  getModuleConfig(moduleName: string): ModuleConfig {
+    return this.configRegistry.getModuleConfig(moduleName);
+  }
+
+  getConfig(): LoggerConfig {
+    return this.configRegistry.getConfig();
+  }
+}

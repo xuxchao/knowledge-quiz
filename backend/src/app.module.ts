@@ -6,12 +6,20 @@ import { ConversationModule } from './conversations/conversation.module';
 import { DocumentModule } from './documents/document.module';
 import { AiModule } from './ai/ai.module';
 import { MemoryModule } from './memory/memory.module';
+import { LoggerModule } from './common/logger';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '../.env',
+    }),
+    LoggerModule.forRoot({
+      config: {
+        globalLevel: 'INFO',
+        globalEnabled: true,
+        outputFormat: 'console',
+      },
     }),
     TypeOrmModule.forRootAsync({
       useFactory: typeOrmConfig,

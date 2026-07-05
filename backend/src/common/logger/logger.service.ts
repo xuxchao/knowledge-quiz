@@ -1,5 +1,4 @@
 import { Injectable, LoggerService as NestLoggerService } from '@nestjs/common';
-import { getCallSiteInfo } from './callsite.util';
 import { LogLevel, LogEntry, formatJson, formatConsole, createLogEntry } from './formatters';
 import { LoggerConfigRegistry, shouldLog, LoggerConfig, ModuleConfig } from './logger.config';
 
@@ -71,8 +70,7 @@ export class LoggerService implements NestLoggerService {
       return;
     }
 
-    const callSite = getCallSiteInfo(4);
-    const entry = createLogEntry(level, moduleName, message, callSite, undefined, stackTrace);
+    const entry = createLogEntry(level, moduleName, message, undefined, stackTrace);
 
     this.output(entry);
   }

@@ -25,7 +25,9 @@ export class ChatController {
     @Query('message') message?: string,
     @Query('userId') userId?: string,
   ): Promise<Observable<{ data: string }>> {
-    this.logger.debug(`请求进入 - 对话聊天，会话ID: ${conversationId || '未提供'}, 用户ID: ${userId || '未提供'}, 消息: ${message?.substring(0, 50) || '无'}${(message?.length ?? 0) > 50 ? '...' : ''}`);
+    this.logger.debug(
+      `请求进入 - 对话聊天，会话ID: ${conversationId || '未提供'}, 用户ID: ${userId || '未提供'}, 消息: ${message?.substring(0, 50) || '无'}${(message?.length ?? 0) > 50 ? '...' : ''}`,
+    );
 
     const uid = userId || 'default';
 

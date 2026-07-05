@@ -1,4 +1,3 @@
-import { CallSiteInfo } from './callsite.util';
 import { LOG_LEVEL_DESCRIPTIONS } from './messages';
 
 export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
@@ -8,11 +7,6 @@ export interface LogEntry {
   level: LogLevel;
   levelDescription: string;
   module: string;
-  functionName: string;
-  methodName: string;
-  fileName: string;
-  lineNumber: number;
-  columnNumber: number;
   message: string;
   context?: Record<string, unknown>;
   stackTrace?: string;
@@ -35,11 +29,9 @@ export function formatConsole(entry: LogEntry): string {
   const color = LEVEL_COLORS[entry.level];
   const timestamp = `[${entry.timestamp}]`;
   const level = `${color}[${entry.level}]${RESET_COLOR}`;
-  const location = `${entry.fileName}:${entry.lineNumber}`;
   const module = `[${entry.module}]`;
-  const functionInfo = entry.functionName !== 'unknown' ? `[${entry.functionName}]` : '';
 
-  let output = `${timestamp} ${level} ${module} ${functionInfo} ${location} - ${entry.message}`;
+  let output = `${timestamp} ${level} ${module} - ${entry.message}`;
 
   if (entry.stackTrace) {
     output += `\n堆栈跟踪:\n${entry.stackTrace}`;
@@ -56,7 +48,6 @@ export function createLogEntry(
   level: LogLevel,
   module: string,
   message: string,
-  callSite: CallSiteInfo,
   context?: Record<string, unknown>,
   stackTrace?: string,
 ): LogEntry {
@@ -65,11 +56,6 @@ export function createLogEntry(
     level,
     levelDescription: LOG_LEVEL_DESCRIPTIONS[level],
     module,
-    functionName: callSite.functionName,
-    methodName: callSite.methodName,
-    fileName: callSite.fileName,
-    lineNumber: callSite.lineNumber,
-    columnNumber: callSite.columnNumber,
     message,
     context,
     stackTrace,

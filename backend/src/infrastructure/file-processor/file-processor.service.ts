@@ -11,11 +11,13 @@ import { AiService } from '../../ai/ai.service';
 import { SpeechService } from '../speech/speech.service';
 import { Neo4jService } from '../neo4j/neo4j.service';
 import { RustfsService } from '../rustfs/rustfs.service';
-
 import { PDFParse } from 'pdf-parse';
+import { LoggerService, LogServiceCall } from '../../common/logger';
 
 @Injectable()
 export class FileProcessorService {
+  private readonly logger = new LoggerService(FileProcessorService.name);
+
   constructor(
     private aiService: AiService,
     private speechService: SpeechService,
@@ -23,6 +25,7 @@ export class FileProcessorService {
     private rustfsService: RustfsService,
   ) {}
 
+  @LogServiceCall()
   async getFileBuffer(filePath: string): Promise<Buffer> {
     if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
       const url = new URL(filePath);
@@ -34,6 +37,7 @@ export class FileProcessorService {
     return fs.readFileSync(filePath);
   }
 
+  @LogServiceCall()
   async processFile(
     filePath: string,
     fileName: string,
@@ -67,10 +71,11 @@ export class FileProcessorService {
       case FileType.VIDEO:
         return this.processVideo(filePath);
       default:
-        throw new Error(`Unsupported file type: ${fileType as string}`);
+        throw new Error(`不支持的文件类型: ${fileType as string}`);
     }
   }
 
+  @LogServiceCall()
   async processPdf(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const dataBuffer = await this.getFileBuffer(filePath);
     const pdf = new PDFParse({ data: dataBuffer });
@@ -88,6 +93,7 @@ export class FileProcessorService {
     };
   }
 
+  @LogServiceCall()
   async processDocx(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
     let tempPath = filePath;
     let needsCleanup = false;
@@ -111,6 +117,7 @@ export class FileProcessorService {
     };
   }
 
+  @LogServiceCall()
   async processSpreadsheet(filePath: string): Promise<{
     text: string;
     metadata: Record<string, unknown>;
@@ -152,11 +159,12 @@ export class FileProcessorService {
     metadata: Record<string, unknown>;
   } {
     return {
-      text: 'PPTX processing requires additional library. Using placeholder.',
+      text: 'PPTX处理需要额外的库支持。使用占位文本。',
       metadata: {},
     };
   }
 
+  @LogServiceCall()
   async processTxt(filePath: string): Promise<{
     text: string;
     metadata: Record<string, unknown>;
@@ -168,6 +176,7 @@ export class FileProcessorService {
     };
   }
 
+  @LogServiceCall()
   async processMd(filePath: string): Promise<{
     text: string;
     metadata: Record<string, unknown>;
@@ -179,6 +188,7 @@ export class FileProcessorService {
     };
   }
 
+  @LogServiceCall()
   async processJson(filePath: string): Promise<{
     text: string;
     metadata: Record<string, unknown>;
@@ -193,6 +203,7 @@ export class FileProcessorService {
     };
   }
 
+  @LogServiceCall()
   async processUrl(url: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const response = await fetch(url);
     const html = await response.text();
@@ -204,12 +215,13 @@ export class FileProcessorService {
     return {
       text,
       metadata: {
-        url,
+        url: '***URL***',
         title: $('title').text(),
       },
     };
   }
 
+  @LogServiceCall()
   async processImage(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
     let tempPath = filePath;
     let needsCleanup = false;
@@ -251,6 +263,7 @@ export class FileProcessorService {
     };
   }
 
+  @LogServiceCall()
   async processAudio(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const audioBuffer = await this.getFileBuffer(filePath);
     const text = await this.speechService.speechToText(audioBuffer);
@@ -264,6 +277,7 @@ export class FileProcessorService {
     };
   }
 
+  @LogServiceCall()
   async processVideo(filePath: string): Promise<{
     text: string;
     metadata: Record<string, unknown>;
@@ -304,6 +318,7 @@ export class FileProcessorService {
     return chunks;
   }
 
+  @LogServiceCall()
   async storeChunks(documentId: string, chunks: string[]): Promise<void> {
     const embeddings = await this.aiService.generateEmbeddings(chunks);
 

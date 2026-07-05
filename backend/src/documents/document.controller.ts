@@ -1,20 +1,10 @@
-import {
-  Controller,
-  Post,
-  Get,
-  Delete,
-  Body,
-  Param,
-  Query,
-  UploadedFile,
-  UseInterceptors,
-  Logger,
-} from '@nestjs/common';
+import { Controller, Post, Get, Delete, Body, Param, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentService } from './document.service';
 import { FileProcessorService } from '../infrastructure/file-processor/file-processor.service';
 import { RustfsService } from '../infrastructure/rustfs/rustfs.service';
 import { Document, FileType, DocumentStatus } from '../entities/document.entity';
+import { LoggerService } from '../common/logger';
 
 const FILE_TYPE_MAP: Record<string, FileType> = {
   '.pdf': FileType.PDF,
@@ -41,7 +31,7 @@ const FILE_TYPE_MAP: Record<string, FileType> = {
 
 @Controller('documents')
 export class DocumentController {
-  private readonly logger = new Logger(DocumentController.name);
+  private readonly logger = new LoggerService(DocumentController.name);
 
   constructor(
     private documentService: DocumentService,
@@ -53,7 +43,7 @@ export class DocumentController {
   @UseInterceptors(FileInterceptor('file'))
   async uploadFile(@UploadedFile() file: Express.Multer.File, @Body() body: { url?: string }) {
     this.logger.debug(
-      `[uploadFile] 开始处理文件上传请求 - file: ${file ? file.originalname : 'undefined'}, url: ${body.url ? '***URL***' : 'undefined'}, file.path: ${file ? file.path : 'undefined'}`,
+      `请求进入 - 上传文件，文件名: ${file?.originalname || '无'}, URL: ${body.url ? '***URL***' : '无'}`,
     );
 
     let document: Document;
@@ -89,16 +79,8 @@ export class DocumentController {
     }
 
     try {
-      this.logger.debug(
-        `[uploadFile] 进入文件处理流程 - body.url: ${body.url ? '***URL***' : 'undefined'}, rustfsUrl: ${rustfsUrl ? '***REDACTED***' : 'undefined'}, document.id: ${document.id}, document.type: ${document.type}`,
-      );
-
       const filePath = body.url ? body.url : rustfsUrl || file.path;
       const fileName = body.url ? body.url : file.originalname;
-
-      this.logger.debug(
-        `[uploadFile] 文件路径处理完成 - filePath: ${filePath ? '***REDACTED***' : 'undefined'}, fileName: ${fileName ? fileName.substring(0, 50) + (fileName.length > 50 ? '...' : '') : 'undefined'}, document.type: ${document.type}`,
-      );
 
       const { text, metadata } = await this.fileProcessorService.processFile(filePath, fileName, document.type);
 
@@ -114,7 +96,7 @@ export class DocumentController {
         chunkCount: chunks.length,
       });
 
-      this.logger.debug(`[uploadFile] 文件处理完成 - document.id: ${document.id}, chunkCount: ${chunks.length}`);
+      this.logger.info(`请求成功 - 文件上传完成，文档ID: ${document.id}, 分块数: ${chunks.length}`);
 
       return {
         success: true,
@@ -124,7 +106,7 @@ export class DocumentController {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const stackTrace = error instanceof Error ? error.stack : undefined;
 
-      this.logger.error(`[uploadFile] 文件处理失败 - document.id: ${document.id}, error: ${errorMessage}`, stackTrace);
+      this.logger.error(`请求处理异常 - 文件上传失败，文档ID: ${document.id}，错误: ${errorMessage}`, stackTrace);
 
       await this.documentService.update(document.id, {
         status: DocumentStatus.FAILED,
@@ -140,9 +122,13 @@ export class DocumentController {
     @Query('page') page: number = 1,
     @Query('limit') limit: number = 10,
   ) {
+    this.logger.debug(`请求进入 - 获取文档列表，名称: ${name || '无'}, 页码: ${page}, 每页: ${limit}`);
+
     const validPage = Math.max(1, page);
     const skip = (validPage - 1) * limit;
     const [documents, total] = await this.documentService.findAll(name, skip, limit);
+
+    this.logger.info(`请求成功 - 获取文档列表完成，总数: ${total}`);
 
     return {
       success: true,
@@ -158,10 +144,16 @@ export class DocumentController {
 
   @Get(':id')
   async getDocument(@Param('id') id: string) {
+    this.logger.debug(`请求进入 - 获取文档，ID: ${id}`);
+
     const document = await this.documentService.findByIdWithChunks(id);
     if (!document) {
+      this.logger.warn(`文档未找到 - ID: ${id}`);
       throw new Error('Document not found');
     }
+
+    this.logger.info(`请求成功 - 获取文档完成，ID: ${id}`);
+
     return {
       success: true,
       data: document,
@@ -170,12 +162,18 @@ export class DocumentController {
 
   @Delete(':id')
   async deleteDocument(@Param('id') id: string) {
+    this.logger.debug(`请求进入 - 删除文档，ID: ${id}`);
+
     const document = await this.documentService.findById(id, false);
     if (!document) {
+      this.logger.warn(`文档未找到 - ID: ${id}`);
       throw new Error('Document not found');
     }
 
     await this.documentService.delete(id);
+
+    this.logger.info(`请求成功 - 删除文档完成，ID: ${id}`);
+
     return {
       success: true,
       message: 'Document deleted successfully',

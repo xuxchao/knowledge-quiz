@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   S3Client,
@@ -10,10 +10,11 @@ import {
   PutObjectCommand,
 } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
+import { LoggerService, LogServiceCall } from '../../common/logger';
 
 @Injectable()
 export class RustfsService {
-  private readonly logger = new Logger(RustfsService.name);
+  private readonly logger = new LoggerService(RustfsService.name);
   private readonly s3Client: S3Client;
   private readonly bucket: string;
 
@@ -35,7 +36,7 @@ export class RustfsService {
       forcePathStyle: true,
     });
 
-    this.logger.debug(`S3Client initialized: endpoint=${endpoint}, forcePathStyle=${true}, bucket=${this.bucket}`);
+    this.logger.debug(`S3客户端已初始化: endpoint=${endpoint}, forcePathStyle=true, bucket=${this.bucket}`);
 
     void this.initializeBucket();
   }
@@ -49,22 +50,21 @@ export class RustfsService {
       const bucketExists = buckets.some((b) => b.Name === this.bucket);
 
       if (!bucketExists) {
-        this.logger.log(`Bucket ${this.bucket} does not exist, creating...`);
+        this.logger.info(`Bucket ${this.bucket}不存在，正在创建...`);
         const createBucketCommand = new CreateBucketCommand({
           Bucket: this.bucket,
         });
         await this.s3Client.send(createBucketCommand);
-        this.logger.log(`Bucket ${this.bucket} created successfully`);
+        this.logger.info(`Bucket ${this.bucket}创建成功`);
       }
     } catch (error) {
       const err = error as Error;
-      this.logger.warn(`Failed to initialize bucket: ${err.message}`);
+      this.logger.warn(`Bucket初始化失败: ${err.message}`);
     }
   }
 
+  @LogServiceCall()
   async uploadFile(key: string, file: Buffer | Readable, contentType?: string): Promise<string> {
-    this.logger.debug(`Uploading file to RustFS: ${key}`);
-
     try {
       const command = new PutObjectCommand({
         Bucket: this.bucket,
@@ -76,18 +76,15 @@ export class RustfsService {
       await this.s3Client.send(command);
 
       const url = `${this.configService.get<string>('RUSTFS_ENDPOINT')}/${this.bucket}/${key}`;
-      this.logger.debug(`File uploaded successfully: ${url}`);
       return url;
     } catch (error) {
       const err = error as Error;
-      this.logger.error(`Failed to upload file: ${err.message}`, err.stack);
-      throw new Error(`Failed to upload file to RustFS: ${err.message}`);
+      throw new Error(`文件上传失败: ${err.message}`);
     }
   }
 
+  @LogServiceCall()
   async downloadFile(key: string): Promise<Buffer> {
-    this.logger.debug(`Downloading file from RustFS: ${key}`);
-
     try {
       const command = new GetObjectCommand({
         Bucket: this.bucket,
@@ -105,14 +102,12 @@ export class RustfsService {
       });
     } catch (error) {
       const err = error as Error;
-      this.logger.error(`Failed to download file: ${err.message}`, err.stack);
-      throw new Error(`Failed to download file from RustFS: ${err.message}`);
+      throw new Error(`文件下载失败: ${err.message}`);
     }
   }
 
+  @LogServiceCall()
   async deleteFile(key: string): Promise<void> {
-    this.logger.debug(`Deleting file from RustFS: ${key}`);
-
     try {
       const command = new DeleteObjectCommand({
         Bucket: this.bucket,
@@ -120,14 +115,13 @@ export class RustfsService {
       });
 
       await this.s3Client.send(command);
-      this.logger.debug(`File deleted successfully: ${key}`);
     } catch (error) {
       const err = error as Error;
-      this.logger.error(`Failed to delete file: ${err.message}`, err.stack);
-      throw new Error(`Failed to delete file from RustFS: ${err.message}`);
+      throw new Error(`文件删除失败: ${err.message}`);
     }
   }
 
+  @LogServiceCall()
   async fileExists(key: string): Promise<boolean> {
     try {
       const command = new HeadObjectCommand({
@@ -142,7 +136,6 @@ export class RustfsService {
       if (err.name === 'NotFound') {
         return false;
       }
-      this.logger.error(`Error checking file existence: ${err.message}`, err.stack);
       throw err;
     }
   }

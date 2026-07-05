@@ -1,27 +1,20 @@
 import { LoggerService } from './logger.service';
 
-interface LoggerAware {
-  logger?: LoggerService;
-}
-
 export function LogAsync() {
-  return function <T extends LoggerAware>(
-    target: T,
-    propertyKey: string,
-    descriptor: TypedPropertyDescriptor<(this: T, ...args: unknown[]) => Promise<unknown>>,
-  ) {
+  return function (target: object, propertyKey: string, descriptor: TypedPropertyDescriptor<any>) {
     const originalMethod = descriptor.value;
     const className = target.constructor.name;
 
-    descriptor.value = async function (this: T, ...args: unknown[]) {
-      const logger = this.logger || new LoggerService(className);
+    descriptor.value = async function (...args: unknown[]) {
+      const self = this as Record<string, unknown>;
+      const logger = (self.logger as LoggerService) || new LoggerService(className);
       const methodName = `${className}.${propertyKey}`;
 
       logger.debug(`异步操作开始 - ${methodName}`);
       const startTime = Date.now();
 
       try {
-        const result = (await originalMethod!.apply(this, args)) as Promise<unknown>;
+        const result = await originalMethod.apply(this, args);
         const duration = Date.now() - startTime;
         logger.debug(`异步操作成功完成 - ${methodName}，耗时: ${duration}ms`);
         return result;
@@ -39,22 +32,19 @@ export function LogAsync() {
 }
 
 export function LogStep(stepName: string) {
-  return function <T extends LoggerAware>(
-    target: T,
-    propertyKey: string,
-    descriptor: TypedPropertyDescriptor<(this: T, ...args: unknown[]) => unknown>,
-  ) {
+  return function (target: object, propertyKey: string, descriptor: TypedPropertyDescriptor<any>) {
     const originalMethod = descriptor.value;
     const className = target.constructor.name;
 
-    descriptor.value = function (this: T, ...args: unknown[]) {
-      const logger = this.logger || new LoggerService(className);
+    descriptor.value = function (...args: unknown[]) {
+      const self = this as Record<string, unknown>;
+      const logger = (self.logger as LoggerService) || new LoggerService(className);
 
       logger.debug(`步骤开始 - ${stepName}`);
       const startTime = Date.now();
 
       try {
-        const result = originalMethod!.apply(this, args) as unknown;
+        const result = originalMethod.apply(this, args);
         const duration = Date.now() - startTime;
         logger.debug(`步骤成功完成 - ${stepName}，耗时: ${duration}ms`);
         return result;
@@ -72,23 +62,20 @@ export function LogStep(stepName: string) {
 }
 
 export function LogServiceCall() {
-  return function <T extends LoggerAware>(
-    target: T,
-    propertyKey: string,
-    descriptor: TypedPropertyDescriptor<(this: T, ...args: unknown[]) => Promise<unknown>>,
-  ) {
+  return function (target: object, propertyKey: string, descriptor: TypedPropertyDescriptor<any>) {
     const originalMethod = descriptor.value;
     const serviceName = target.constructor.name;
 
-    descriptor.value = async function (this: T, ...args: unknown[]) {
-      const logger = this.logger || new LoggerService(serviceName);
+    descriptor.value = async function (...args: unknown[]) {
+      const self = this as Record<string, unknown>;
+      const logger = (self.logger as LoggerService) || new LoggerService(serviceName);
       const methodName = `${serviceName}.${propertyKey}`;
 
       logger.debug(`服务调用开始 - ${methodName}`);
       const startTime = Date.now();
 
       try {
-        const result = (await originalMethod!.apply(this, args)) as Promise<unknown>;
+        const result = await originalMethod.apply(this, args);
         const duration = Date.now() - startTime;
         logger.debug(`服务调用成功 - ${methodName}，耗时: ${duration}ms`);
         return result;

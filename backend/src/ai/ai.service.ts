@@ -1,9 +1,11 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
+import { LoggerService, LogServiceCall } from '../common/logger';
 
 @Injectable()
 export class AiService implements OnModuleInit {
+  private readonly logger = new LoggerService(AiService.name);
   private chatModel: ChatOpenAI;
   private embeddings: OpenAIEmbeddings;
 
@@ -38,6 +40,8 @@ export class AiService implements OnModuleInit {
       },
       model: 'text-embedding-v2',
     });
+
+    this.logger.info('AI服务初始化完成');
   }
 
   getChatModel(): ChatOpenAI {
@@ -48,14 +52,17 @@ export class AiService implements OnModuleInit {
     return this.embeddings;
   }
 
+  @LogServiceCall()
   async generateEmbedding(text: string): Promise<number[]> {
     return this.embeddings.embedQuery(text);
   }
 
+  @LogServiceCall()
   async generateEmbeddings(texts: string[]): Promise<number[][]> {
     return this.embeddings.embedDocuments(texts);
   }
 
+  @LogServiceCall()
   async *streamChain(query: string, systemPrompt: string): AsyncGenerator<string> {
     const stream = await this.chatModel.stream([
       { role: 'system', content: systemPrompt },

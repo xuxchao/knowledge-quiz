@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as tencentcloud from 'tencentcloud-sdk-nodejs';
+import { LoggerService, LogServiceCall } from '../../common/logger';
 
 const AsrClient = tencentcloud.asr.v20190614.Client;
 const TtsClient = tencentcloud.tts.v20190823.Client;
@@ -25,6 +26,7 @@ interface TextToSpeechResult {
 
 @Injectable()
 export class SpeechService {
+  private readonly logger = new LoggerService(SpeechService.name);
   private asrClient: AsrClientType;
   private ttsClient: TtsClientType;
 
@@ -47,8 +49,11 @@ export class SpeechService {
       credential,
       region,
     });
+
+    this.logger.info('语音服务初始化完成');
   }
 
+  @LogServiceCall()
   async speechToText(audioBuffer: Buffer, format: string = 'wav'): Promise<string> {
     const base64Audio = audioBuffer.toString('base64');
 
@@ -63,6 +68,7 @@ export class SpeechService {
     return result.Result || '';
   }
 
+  @LogServiceCall()
   async textToSpeech(text: string): Promise<Buffer> {
     const params: TextToSpeechParams = {
       Text: text,
@@ -81,6 +87,7 @@ export class SpeechService {
     return Buffer.from(result.Audio || '', 'base64');
   }
 
+  @LogServiceCall()
   async batchSpeechToText(
     audioBuffer: Buffer,
     format: string = 'wav',

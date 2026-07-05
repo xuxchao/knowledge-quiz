@@ -1,4 +1,4 @@
-import { Controller, Sse, Query, HttpException, HttpStatus, Logger } from '@nestjs/common';
+import { Controller, Sse, Query, HttpException, HttpStatus } from '@nestjs/common';
 import { Observable, from } from 'rxjs';
 import { map, finalize, endWith } from 'rxjs/operators';
 import { ConversationService } from '../conversations/conversation.service';
@@ -6,10 +6,11 @@ import { AiService } from './ai.service';
 import { MemoryService } from '../memory/memory.service';
 import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
 import { MessageRole } from '../entities/message.entity';
+import { LoggerService } from '../common/logger';
 
 @Controller('conversations')
 export class ChatController {
-  private readonly logger = new Logger(ChatController.name);
+  private readonly logger = new LoggerService(ChatController.name);
 
   constructor(
     private conversationService: ConversationService,
@@ -24,13 +25,12 @@ export class ChatController {
     @Query('message') message?: string,
     @Query('userId') userId?: string,
   ): Promise<Observable<{ data: string }>> {
-    this.logger.log(
-      `[chatSse] conversationId: ${conversationId || '未提供'}, userId: ${userId || '未提供'}, message: ${message?.substring(0, 50)}${(message?.length ?? 0) > 50 ? '...' : ''}`,
-    );
+    this.logger.debug(`请求进入 - 对话聊天，会话ID: ${conversationId || '未提供'}, 用户ID: ${userId || '未提供'}, 消息: ${message?.substring(0, 50) || '无'}${(message?.length ?? 0) > 50 ? '...' : ''}`);
 
     const uid = userId || 'default';
 
     if (!message?.trim()) {
+      this.logger.warn('消息内容为空');
       throw new HttpException('Message cannot be empty', HttpStatus.BAD_REQUEST);
     }
 
@@ -39,17 +39,16 @@ export class ChatController {
         userId: uid,
       });
       conversationId = conversation.id;
+      this.logger.info(`新建会话 - ID: ${conversationId}`);
     }
 
     await this.conversationService.createMessage(conversationId, MessageRole.USER, message);
-
     await this.memoryService.saveShortTermMemory(conversationId, message);
 
     const memories = await this.memoryService.getRelevantMemories(message, conversationId, uid);
     const memoryContext = memories.map((m) => m.content).join('\n');
 
     const queryEmbedding = await this.aiService.generateEmbedding(message);
-
     const relevantChunks = await this.neo4jService.search(queryEmbedding, 5);
     const chunkContext = relevantChunks.map((c) => c.content).join('\n');
 
@@ -85,11 +84,16 @@ ${memoryContext}
       }),
       finalize(() => {
         void (async () => {
-          await this.conversationService.createMessage(conversationId, MessageRole.ASSISTANT, fullResponse);
-
-          await this.memoryService.saveShortTermMemory(conversationId, fullResponse);
-
-          this.memoryService.saveLongTermMemory(uid, fullResponse);
+          try {
+            await this.conversationService.createMessage(conversationId, MessageRole.ASSISTANT, fullResponse);
+            await this.memoryService.saveShortTermMemory(conversationId, fullResponse);
+            this.memoryService.saveLongTermMemory(uid, fullResponse);
+            this.logger.info(`对话完成 - 会话ID: ${conversationId}, 响应长度: ${fullResponse.length}`);
+          } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const stackTrace = error instanceof Error ? error.stack : undefined;
+            this.logger.error(`对话完成后保存失败 - 会话ID: ${conversationId}，错误: ${errorMessage}`, stackTrace);
+          }
         })();
       }),
     );

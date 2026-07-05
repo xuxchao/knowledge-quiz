@@ -2,9 +2,11 @@ import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Driver, auth } from 'neo4j-driver';
 import neo4j from 'neo4j-driver';
+import { LoggerService, LogServiceCall } from '../../common/logger';
 
 @Injectable()
 export class Neo4jService implements OnModuleInit, OnModuleDestroy {
+  private readonly logger = new LoggerService(Neo4jService.name);
   private driver: Driver;
 
   constructor(private configService: ConfigService) {}
@@ -17,16 +19,19 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
     this.driver = neo4j.driver(uri, auth.basic(username, password));
     await this.driver.verifyConnectivity();
     await this.createVectorIndex();
+    this.logger.info('Neo4j服务初始化完成');
   }
 
   async onModuleDestroy() {
     await this.driver.close();
+    this.logger.info('Neo4j连接已关闭');
   }
 
   getDriver(): Driver {
     return this.driver;
   }
 
+  @LogServiceCall()
   async createVectorIndex(): Promise<void> {
     const session = this.driver.session();
     try {
@@ -44,6 +49,7 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  @LogServiceCall()
   async addDocuments(
     documents: { content: string; metadata: Record<string, unknown> }[],
     embeddings: number[][],
@@ -71,6 +77,7 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  @LogServiceCall()
   async search(
     queryEmbedding: number[],
     topK: number = 5,
@@ -100,6 +107,7 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  @LogServiceCall()
   async deleteByDocumentId(documentId: string): Promise<void> {
     const session = this.driver.session();
     try {

@@ -16,13 +16,9 @@ describe('ConversationService', () => {
         {
           provide: getRepositoryToken(Conversation),
           useValue: {
-            create: jest
-              .fn()
-              .mockImplementation((data) => ({ id: 'test-id', ...data })),
+            create: jest.fn().mockImplementation((data) => ({ id: 'test-id', ...data })),
             save: jest.fn().mockResolvedValue({ id: 'test-id', name: 'test' }),
-            findOne: jest
-              .fn()
-              .mockResolvedValue({ id: 'test-id', messages: [] }),
+            findOne: jest.fn().mockResolvedValue({ id: 'test-id', messages: [] }),
             createQueryBuilder: jest.fn().mockReturnValue({
               where: jest.fn().mockReturnThis(),
               orderBy: jest.fn().mockReturnThis(),
@@ -35,12 +31,8 @@ describe('ConversationService', () => {
         {
           provide: getRepositoryToken(Message),
           useValue: {
-            create: jest
-              .fn()
-              .mockImplementation((data) => ({ id: 'msg-id', ...data })),
-            save: jest
-              .fn()
-              .mockResolvedValue({ id: 'msg-id', content: 'test' }),
+            create: jest.fn().mockImplementation((data) => ({ id: 'msg-id', ...data })),
+            save: jest.fn().mockResolvedValue({ id: 'msg-id', content: 'test' }),
             find: jest.fn().mockResolvedValue([]),
             delete: jest.fn().mockResolvedValue({ affected: 1 }),
           },
@@ -202,11 +194,7 @@ describe('ConversationService', () => {
       messageRepository.create.mockReturnValue(mockMessage);
       messageRepository.save.mockResolvedValue(mockMessage);
 
-      const result = await service.createMessage(
-        'conv-1',
-        MessageRole.USER,
-        'Hello',
-      );
+      const result = await service.createMessage('conv-1', MessageRole.USER, 'Hello');
 
       expect(result).toEqual(mockMessage);
       expect(messageRepository.create).toHaveBeenCalledWith({

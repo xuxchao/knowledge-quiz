@@ -8,9 +8,7 @@ export function LogAsync() {
   return function <T extends LoggerAware>(
     target: T,
     propertyKey: string,
-    descriptor: TypedPropertyDescriptor<
-      (this: T, ...args: unknown[]) => Promise<unknown>
-    >,
+    descriptor: TypedPropertyDescriptor<(this: T, ...args: unknown[]) => Promise<unknown>>,
   ) {
     const originalMethod = descriptor.value;
     const className = target.constructor.name;
@@ -23,22 +21,15 @@ export function LogAsync() {
       const startTime = Date.now();
 
       try {
-        const result = (await originalMethod!.apply(
-          this,
-          args,
-        )) as Promise<unknown>;
+        const result = (await originalMethod!.apply(this, args)) as Promise<unknown>;
         const duration = Date.now() - startTime;
         logger.debug(`异步操作成功完成 - ${methodName}，耗时: ${duration}ms`);
         return result;
       } catch (error: unknown) {
         const duration = Date.now() - startTime;
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
         const stackTrace = error instanceof Error ? error.stack : undefined;
-        logger.error(
-          `异步操作失败 - ${methodName}，耗时: ${duration}ms，错误: ${errorMessage}`,
-          stackTrace,
-        );
+        logger.error(`异步操作失败 - ${methodName}，耗时: ${duration}ms，错误: ${errorMessage}`, stackTrace);
         throw error;
       }
     };
@@ -51,9 +42,7 @@ export function LogStep(stepName: string) {
   return function <T extends LoggerAware>(
     target: T,
     propertyKey: string,
-    descriptor: TypedPropertyDescriptor<
-      (this: T, ...args: unknown[]) => unknown
-    >,
+    descriptor: TypedPropertyDescriptor<(this: T, ...args: unknown[]) => unknown>,
   ) {
     const originalMethod = descriptor.value;
     const className = target.constructor.name;
@@ -71,13 +60,9 @@ export function LogStep(stepName: string) {
         return result;
       } catch (error: unknown) {
         const duration = Date.now() - startTime;
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
         const stackTrace = error instanceof Error ? error.stack : undefined;
-        logger.error(
-          `步骤执行失败 - ${stepName}，耗时: ${duration}ms，错误: ${errorMessage}`,
-          stackTrace,
-        );
+        logger.error(`步骤执行失败 - ${stepName}，耗时: ${duration}ms，错误: ${errorMessage}`, stackTrace);
         throw error;
       }
     };
@@ -90,9 +75,7 @@ export function LogServiceCall() {
   return function <T extends LoggerAware>(
     target: T,
     propertyKey: string,
-    descriptor: TypedPropertyDescriptor<
-      (this: T, ...args: unknown[]) => Promise<unknown>
-    >,
+    descriptor: TypedPropertyDescriptor<(this: T, ...args: unknown[]) => Promise<unknown>>,
   ) {
     const originalMethod = descriptor.value;
     const serviceName = target.constructor.name;
@@ -105,22 +88,15 @@ export function LogServiceCall() {
       const startTime = Date.now();
 
       try {
-        const result = (await originalMethod!.apply(
-          this,
-          args,
-        )) as Promise<unknown>;
+        const result = (await originalMethod!.apply(this, args)) as Promise<unknown>;
         const duration = Date.now() - startTime;
         logger.debug(`服务调用成功 - ${methodName}，耗时: ${duration}ms`);
         return result;
       } catch (error: unknown) {
         const duration = Date.now() - startTime;
-        const errorMessage =
-          error instanceof Error ? error.message : String(error);
+        const errorMessage = error instanceof Error ? error.message : String(error);
         const stackTrace = error instanceof Error ? error.stack : undefined;
-        logger.error(
-          `服务调用异常 - ${methodName}，耗时: ${duration}ms，错误: ${errorMessage}`,
-          stackTrace,
-        );
+        logger.error(`服务调用异常 - ${methodName}，耗时: ${duration}ms，错误: ${errorMessage}`, stackTrace);
         throw error;
       }
     };

@@ -57,18 +57,12 @@ describe('MemoryService', () => {
       jest.spyOn(redisService, 'get').mockResolvedValue(null);
       const result = await service.getShortTermMemory('non-existent');
       expect(result).toEqual([]);
-      expect(redisService.get).toHaveBeenCalledWith(
-        'memory:short:non-existent',
-      );
+      expect(redisService.get).toHaveBeenCalledWith('memory:short:non-existent');
     });
 
     it('should return memories if they exist', async () => {
-      const mockMemories = [
-        { id: '1', content: 'test', metadata: {}, createdAt: 1234567890 },
-      ];
-      jest
-        .spyOn(redisService, 'get')
-        .mockResolvedValue(JSON.stringify(mockMemories));
+      const mockMemories = [{ id: '1', content: 'test', metadata: {}, createdAt: 1234567890 }];
+      jest.spyOn(redisService, 'get').mockResolvedValue(JSON.stringify(mockMemories));
       const result = await service.getShortTermMemory('conv-1');
       expect(result).toEqual(mockMemories);
       expect(result).toHaveLength(1);
@@ -135,11 +129,7 @@ describe('MemoryService', () => {
   describe('getRelevantMemories', () => {
     it('should return relevant memories', async () => {
       jest.spyOn(redisService, 'get').mockResolvedValue(null);
-      const result = await service.getRelevantMemories(
-        'test',
-        'conv-1',
-        'user-1',
-      );
+      const result = await service.getRelevantMemories('test', 'conv-1', 'user-1');
       expect(Array.isArray(result)).toBe(true);
     });
 

@@ -29,20 +29,14 @@ export class MemoryService {
     };
 
     const existing = await this.redisService.get(key);
-    const memories: MemoryItem[] = existing
-      ? (JSON.parse(existing) as MemoryItem[])
-      : [];
+    const memories: MemoryItem[] = existing ? (JSON.parse(existing) as MemoryItem[]) : [];
     memories.push(item);
 
     if (memories.length > 50) {
       memories.shift();
     }
 
-    await this.redisService.set(
-      key,
-      JSON.stringify(memories),
-      this.shortTermMemoryTtl,
-    );
+    await this.redisService.set(key, JSON.stringify(memories), this.shortTermMemoryTtl);
   }
 
   async getShortTermMemory(conversationId: string): Promise<MemoryItem[]> {
@@ -55,21 +49,14 @@ export class MemoryService {
       const memories: MemoryItem[] = JSON.parse(existing) as MemoryItem[];
       return memories.map((item) => ({
         ...item,
-        createdAt:
-          typeof item.createdAt === 'string'
-            ? new Date(item.createdAt).getTime()
-            : item.createdAt,
+        createdAt: typeof item.createdAt === 'string' ? new Date(item.createdAt).getTime() : item.createdAt,
       }));
     } catch {
       return [];
     }
   }
 
-  saveLongTermMemory(
-    userId: string,
-    content: string,
-    metadata?: Record<string, unknown>,
-  ): void {
+  saveLongTermMemory(userId: string, content: string, metadata?: Record<string, unknown>): void {
     const item: MemoryItem = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       content,
@@ -91,11 +78,7 @@ export class MemoryService {
     return this.longTermMemoryStore.get(userId) || [];
   }
 
-  async getRelevantMemories(
-    query: string,
-    conversationId: string,
-    userId: string = 'default',
-  ): Promise<MemoryItem[]> {
+  async getRelevantMemories(query: string, conversationId: string, userId: string = 'default'): Promise<MemoryItem[]> {
     const shortTerm = await this.getShortTermMemory(conversationId);
     const longTerm = this.getLongTermMemory(userId);
 

@@ -130,71 +130,47 @@ describe('FileProcessorService', () => {
 
   describe('processFile', () => {
     it('should throw error for unsupported file type', async () => {
-      await expect(
-        service.processFile('test.xxx', 'test.xxx', 'unknown' as FileType),
-      ).rejects.toThrow('Unsupported file type: unknown');
+      await expect(service.processFile('test.xxx', 'test.xxx', 'unknown' as FileType)).rejects.toThrow(
+        'Unsupported file type: unknown',
+      );
     });
 
     it('should process PDF files', async () => {
-      const result = await service.processFile(
-        'test.pdf',
-        'test.pdf',
-        FileType.PDF,
-      );
+      const result = await service.processFile('test.pdf', 'test.pdf', FileType.PDF);
 
       expect(result).toHaveProperty('text');
       expect(result).toHaveProperty('metadata');
     });
 
     it('should process TXT files', async () => {
-      const result = await service.processFile(
-        'test.txt',
-        'test.txt',
-        FileType.TXT,
-      );
+      const result = await service.processFile('test.txt', 'test.txt', FileType.TXT);
 
       expect(result).toHaveProperty('text');
       expect(result.text).toBe('test content');
     });
 
     it('should process MD files', async () => {
-      const result = await service.processFile(
-        'test.md',
-        'test.md',
-        FileType.MD,
-      );
+      const result = await service.processFile('test.md', 'test.md', FileType.MD);
 
       expect(result).toHaveProperty('text');
       expect(result.text).toBe('test content');
     });
 
     it('should process DOCX files', async () => {
-      const result = await service.processFile(
-        'test.docx',
-        'test.docx',
-        FileType.DOCX,
-      );
+      const result = await service.processFile('test.docx', 'test.docx', FileType.DOCX);
 
       expect(result).toHaveProperty('text');
     });
 
     it('should process PPTX files', async () => {
-      const result = await service.processFile(
-        'test.pptx',
-        'test.pptx',
-        FileType.PPTX,
-      );
+      const result = await service.processFile('test.pptx', 'test.pptx', FileType.PPTX);
 
       expect(result).toHaveProperty('text');
       expect(result.text).toContain('PPTX processing');
     });
 
     it('should process URL', async () => {
-      const result = await service.processFile(
-        'https://example.com',
-        'https://example.com',
-        FileType.URL,
-      );
+      const result = await service.processFile('https://example.com', 'https://example.com', FileType.URL);
 
       expect(result).toHaveProperty('text');
       expect(result).toHaveProperty('metadata');
@@ -203,15 +179,9 @@ describe('FileProcessorService', () => {
 
   describe('processJson', () => {
     it('should process JSON file', async () => {
-      rustfsService.downloadFile.mockResolvedValue(
-        Buffer.from(JSON.stringify({ key: 'value', num: 123 })),
-      );
+      rustfsService.downloadFile.mockResolvedValue(Buffer.from(JSON.stringify({ key: 'value', num: 123 })));
 
-      const result = await service.processFile(
-        'test.json',
-        'test.json',
-        FileType.JSON,
-      );
+      const result = await service.processFile('test.json', 'test.json', FileType.JSON);
 
       expect(result).toHaveProperty('text');
       expect(result).toHaveProperty('metadata');
@@ -221,9 +191,7 @@ describe('FileProcessorService', () => {
     it('should handle invalid JSON', async () => {
       rustfsService.downloadFile.mockResolvedValue(Buffer.from('invalid json'));
 
-      await expect(
-        service.processFile('test.json', 'test.json', FileType.JSON),
-      ).rejects.toThrow();
+      await expect(service.processFile('test.json', 'test.json', FileType.JSON)).rejects.toThrow();
     });
   });
 
@@ -231,11 +199,7 @@ describe('FileProcessorService', () => {
     it('should process audio file', async () => {
       rustfsService.downloadFile.mockResolvedValue(Buffer.from('audio data'));
 
-      const result = await service.processFile(
-        'test.mp3',
-        'test.mp3',
-        FileType.AUDIO,
-      );
+      const result = await service.processFile('test.mp3', 'test.mp3', FileType.AUDIO);
 
       expect(result).toHaveProperty('text');
       expect(result.text).toBe('Transcribed text');
@@ -247,11 +211,7 @@ describe('FileProcessorService', () => {
     it('should process video file', async () => {
       rustfsService.downloadFile.mockResolvedValue(Buffer.from('video data'));
 
-      const result = await service.processFile(
-        'test.mp4',
-        'test.mp4',
-        FileType.VIDEO,
-      );
+      const result = await service.processFile('test.mp4', 'test.mp4', FileType.VIDEO);
 
       expect(result).toHaveProperty('text');
       expect(result.text).toContain('视频处理');

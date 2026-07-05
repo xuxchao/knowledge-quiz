@@ -24,11 +24,7 @@ export class DocumentService {
     });
   }
 
-  async findAll(
-    name?: string,
-    skip: number = 0,
-    limit: number = 10,
-  ): Promise<[Document[], number]> {
+  async findAll(name?: string, skip: number = 0, limit: number = 10): Promise<[Document[], number]> {
     const query = this.documentRepository.createQueryBuilder('document');
 
     if (name) {
@@ -41,10 +37,7 @@ export class DocumentService {
     return query.getManyAndCount();
   }
 
-  async update(
-    id: string,
-    data: Record<string, unknown>,
-  ): Promise<Document | null> {
+  async update(id: string, data: Record<string, unknown>): Promise<Document | null> {
     await this.documentRepository.update(id, data);
     return this.findById(id);
   }
@@ -54,11 +47,7 @@ export class DocumentService {
     await this.neo4jService.deleteByDocumentId(id);
   }
 
-  async updateStatus(
-    id: string,
-    status: DocumentStatus,
-    errorMessage?: string,
-  ): Promise<void> {
+  async updateStatus(id: string, status: DocumentStatus, errorMessage?: string): Promise<void> {
     await this.documentRepository.update(id, { status, errorMessage });
   }
 }

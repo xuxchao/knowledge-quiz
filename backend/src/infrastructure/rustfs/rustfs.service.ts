@@ -18,18 +18,9 @@ export class RustfsService {
   private readonly bucket: string;
 
   constructor(private configService: ConfigService) {
-    const endpoint = configService.get<string>(
-      'RUSTFS_ENDPOINT',
-      'http://localhost:9004',
-    );
-    const accessKey = configService.get<string>(
-      'RUSTFS_ACCESS_KEY',
-      'rustfsadmin',
-    );
-    const secretKey = configService.get<string>(
-      'RUSTFS_SECRET_KEY',
-      'rustfsadmin',
-    );
+    const endpoint = configService.get<string>('RUSTFS_ENDPOINT', 'http://localhost:9004');
+    const accessKey = configService.get<string>('RUSTFS_ACCESS_KEY', 'rustfsadmin');
+    const secretKey = configService.get<string>('RUSTFS_SECRET_KEY', 'rustfsadmin');
     const region = configService.get<string>('RUSTFS_REGION', 'us-east-1');
 
     this.bucket = configService.get<string>('RUSTFS_BUCKET', 'documents');
@@ -44,9 +35,7 @@ export class RustfsService {
       forcePathStyle: true,
     });
 
-    this.logger.debug(
-      `S3Client initialized: endpoint=${endpoint}, forcePathStyle=${true}, bucket=${this.bucket}`,
-    );
+    this.logger.debug(`S3Client initialized: endpoint=${endpoint}, forcePathStyle=${true}, bucket=${this.bucket}`);
 
     void this.initializeBucket();
   }
@@ -73,11 +62,7 @@ export class RustfsService {
     }
   }
 
-  async uploadFile(
-    key: string,
-    file: Buffer | Readable,
-    contentType?: string,
-  ): Promise<string> {
+  async uploadFile(key: string, file: Buffer | Readable, contentType?: string): Promise<string> {
     this.logger.debug(`Uploading file to RustFS: ${key}`);
 
     try {
@@ -157,10 +142,7 @@ export class RustfsService {
       if (err.name === 'NotFound') {
         return false;
       }
-      this.logger.error(
-        `Error checking file existence: ${err.message}`,
-        err.stack,
-      );
+      this.logger.error(`Error checking file existence: ${err.message}`, err.stack);
       throw err;
     }
   }

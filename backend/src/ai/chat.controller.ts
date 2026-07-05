@@ -1,11 +1,4 @@
-import {
-  Controller,
-  Sse,
-  Query,
-  HttpException,
-  HttpStatus,
-  Logger,
-} from '@nestjs/common';
+import { Controller, Sse, Query, HttpException, HttpStatus, Logger } from '@nestjs/common';
 import { Observable, from } from 'rxjs';
 import { map, finalize, endWith } from 'rxjs/operators';
 import { ConversationService } from '../conversations/conversation.service';
@@ -38,10 +31,7 @@ export class ChatController {
     const uid = userId || 'default';
 
     if (!message?.trim()) {
-      throw new HttpException(
-        'Message cannot be empty',
-        HttpStatus.BAD_REQUEST,
-      );
+      throw new HttpException('Message cannot be empty', HttpStatus.BAD_REQUEST);
     }
 
     if (!conversationId) {
@@ -51,19 +41,11 @@ export class ChatController {
       conversationId = conversation.id;
     }
 
-    await this.conversationService.createMessage(
-      conversationId,
-      MessageRole.USER,
-      message,
-    );
+    await this.conversationService.createMessage(conversationId, MessageRole.USER, message);
 
     await this.memoryService.saveShortTermMemory(conversationId, message);
 
-    const memories = await this.memoryService.getRelevantMemories(
-      message,
-      conversationId,
-      uid,
-    );
+    const memories = await this.memoryService.getRelevantMemories(message, conversationId, uid);
     const memoryContext = memories.map((m) => m.content).join('\n');
 
     const queryEmbedding = await this.aiService.generateEmbedding(message);
@@ -103,16 +85,9 @@ ${memoryContext}
       }),
       finalize(() => {
         void (async () => {
-          await this.conversationService.createMessage(
-            conversationId,
-            MessageRole.ASSISTANT,
-            fullResponse,
-          );
+          await this.conversationService.createMessage(conversationId, MessageRole.ASSISTANT, fullResponse);
 
-          await this.memoryService.saveShortTermMemory(
-            conversationId,
-            fullResponse,
-          );
+          await this.memoryService.saveShortTermMemory(conversationId, fullResponse);
 
           this.memoryService.saveLongTermMemory(uid, fullResponse);
         })();

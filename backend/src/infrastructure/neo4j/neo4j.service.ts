@@ -10,15 +10,9 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   constructor(private configService: ConfigService) {}
 
   async onModuleInit() {
-    const uri = this.configService.get<string>(
-      'NEO4J_URI',
-      'bolt://localhost:7687',
-    );
+    const uri = this.configService.get<string>('NEO4J_URI', 'bolt://localhost:7687');
     const username = this.configService.get<string>('NEO4J_USER', 'neo4j');
-    const password = this.configService.get<string>(
-      'NEO4J_PASSWORD',
-      'password',
-    );
+    const password = this.configService.get<string>('NEO4J_PASSWORD', 'password');
 
     this.driver = neo4j.driver(uri, auth.basic(username, password));
     await this.driver.verifyConnectivity();
@@ -80,9 +74,7 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   async search(
     queryEmbedding: number[],
     topK: number = 5,
-  ): Promise<
-    { content: string; metadata: Record<string, unknown>; score: number }[]
-  > {
+  ): Promise<{ content: string; metadata: Record<string, unknown>; score: number }[]> {
     const session = this.driver.session();
     try {
       const result = await session.run(

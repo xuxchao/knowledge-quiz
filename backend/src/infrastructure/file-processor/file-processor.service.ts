@@ -28,9 +28,7 @@ export class FileProcessorService {
       const url = new URL(filePath);
       const fullPath = decodeURIComponent(url.pathname.substring(1));
       const bucket = this.rustfsService.getBucket();
-      const key = fullPath.startsWith(`${bucket}/`)
-        ? fullPath.substring(bucket.length + 1)
-        : fullPath;
+      const key = fullPath.startsWith(`${bucket}/`) ? fullPath.substring(bucket.length + 1) : fullPath;
       return this.rustfsService.downloadFile(key);
     }
     return fs.readFileSync(filePath);
@@ -73,9 +71,7 @@ export class FileProcessorService {
     }
   }
 
-  async processPdf(
-    filePath: string,
-  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processPdf(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const dataBuffer = await this.getFileBuffer(filePath);
     const pdf = new PDFParse({ data: dataBuffer });
     const textResult = await pdf.getText();
@@ -92,9 +88,7 @@ export class FileProcessorService {
     };
   }
 
-  async processDocx(
-    filePath: string,
-  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processDocx(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
     let tempPath = filePath;
     let needsCleanup = false;
 
@@ -126,10 +120,7 @@ export class FileProcessorService {
 
     if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
       const buffer = await this.getFileBuffer(filePath);
-      tempPath = path.join(
-        '/tmp',
-        `spreadsheet_${Date.now()}${path.extname(filePath)}`,
-      );
+      tempPath = path.join('/tmp', `spreadsheet_${Date.now()}${path.extname(filePath)}`);
       fs.writeFileSync(tempPath, buffer);
       needsCleanup = true;
     }
@@ -193,10 +184,7 @@ export class FileProcessorService {
     metadata: Record<string, unknown>;
   }> {
     const buffer = await this.getFileBuffer(filePath);
-    const json = JSON.parse(buffer.toString('utf-8')) as Record<
-      string,
-      unknown
-    >;
+    const json = JSON.parse(buffer.toString('utf-8')) as Record<string, unknown>;
     return {
       text: JSON.stringify(json, null, 2),
       metadata: {
@@ -205,9 +193,7 @@ export class FileProcessorService {
     };
   }
 
-  async processUrl(
-    url: string,
-  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processUrl(url: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const response = await fetch(url);
     const html = await response.text();
     const $ = cheerio.load(html);
@@ -224,19 +210,14 @@ export class FileProcessorService {
     };
   }
 
-  async processImage(
-    filePath: string,
-  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processImage(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
     let tempPath = filePath;
     let needsCleanup = false;
     let imageBuffer: Buffer;
 
     if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
       imageBuffer = await this.getFileBuffer(filePath);
-      tempPath = path.join(
-        '/tmp',
-        `image_${Date.now()}${path.extname(filePath)}`,
-      );
+      tempPath = path.join('/tmp', `image_${Date.now()}${path.extname(filePath)}`);
       fs.writeFileSync(tempPath, imageBuffer);
       needsCleanup = true;
     } else {
@@ -260,10 +241,7 @@ export class FileProcessorService {
     }
 
     return {
-      text:
-        typeof description.content === 'string'
-          ? description.content
-          : JSON.stringify(description.content || ''),
+      text: typeof description.content === 'string' ? description.content : JSON.stringify(description.content || ''),
       metadata: {
         width: metadata.width,
         height: metadata.height,
@@ -273,9 +251,7 @@ export class FileProcessorService {
     };
   }
 
-  async processAudio(
-    filePath: string,
-  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
+  async processAudio(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
     const audioBuffer = await this.getFileBuffer(filePath);
     const text = await this.speechService.speechToText(audioBuffer);
 
@@ -303,11 +279,7 @@ export class FileProcessorService {
     };
   }
 
-  chunkText(
-    text: string,
-    chunkSize: number = 500,
-    chunkOverlap: number = 50,
-  ): string[] {
+  chunkText(text: string, chunkSize: number = 500, chunkOverlap: number = 50): string[] {
     const chunks: string[] = [];
     let start = 0;
 

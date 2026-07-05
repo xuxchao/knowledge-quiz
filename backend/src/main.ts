@@ -16,9 +16,7 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new HttpExceptionFilter(), new AllExceptionsFilter());
 
-  const port = process.env.BACKEND_PORT
-    ? parseInt(process.env.BACKEND_PORT)
-    : 3000;
+  const port = process.env.BACKEND_PORT ? parseInt(process.env.BACKEND_PORT) : 3000;
 
   logger.log(`应用启动成功，端口 ${port}`, 'Bootstrap');
   await app.listen(port);
@@ -26,10 +24,6 @@ async function bootstrap() {
 
 bootstrap().catch((error) => {
   const logger = new LoggerService('Bootstrap');
-  logger.error(
-    '应用启动失败',
-    error instanceof Error ? error.stack : undefined,
-    'Bootstrap',
-  );
+  logger.error('应用启动失败', error instanceof Error ? error.stack : undefined, 'Bootstrap');
   process.exit(1);
 });

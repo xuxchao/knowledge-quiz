@@ -75,9 +75,7 @@ describe('RustfsService', () => {
     it('should handle nested paths', () => {
       const url = service.getFileUrl('folder/subfolder/file.txt');
 
-      expect(url).toBe(
-        'http://localhost:9004/documents/folder/subfolder/file.txt',
-      );
+      expect(url).toBe('http://localhost:9004/documents/folder/subfolder/file.txt');
     });
   });
 
@@ -89,11 +87,7 @@ describe('RustfsService', () => {
       const service = new RustfsService(configService);
       const fileBuffer = Buffer.from('test content');
 
-      const result = await service.uploadFile(
-        'test-doc/test.pdf',
-        fileBuffer,
-        'application/pdf',
-      );
+      const result = await service.uploadFile('test-doc/test.pdf', fileBuffer, 'application/pdf');
 
       expect(result).toBe('http://localhost:9004/documents/test-doc/test.pdf');
       expect(mockSend).toHaveBeenCalledWith(expect.any(PutObjectCommand));
@@ -106,9 +100,9 @@ describe('RustfsService', () => {
       const service = new RustfsService(configService);
       const fileBuffer = Buffer.from('test content');
 
-      await expect(
-        service.uploadFile('test-doc/test.pdf', fileBuffer),
-      ).rejects.toThrow('Failed to upload file to RustFS: Upload failed');
+      await expect(service.uploadFile('test-doc/test.pdf', fileBuffer)).rejects.toThrow(
+        'Failed to upload file to RustFS: Upload failed',
+      );
     });
 
     it('should handle upload without contentType', async () => {
@@ -142,9 +136,7 @@ describe('RustfsService', () => {
     });
 
     it('should throw error if download fails', async () => {
-      const mockSend = jest
-        .fn()
-        .mockRejectedValue(new Error('Download failed'));
+      const mockSend = jest.fn().mockRejectedValue(new Error('Download failed'));
       (S3Client as jest.Mock).mockImplementation(() => ({ send: mockSend }));
 
       const service = new RustfsService(configService);
@@ -211,9 +203,7 @@ describe('RustfsService', () => {
 
       const service = new RustfsService(configService);
 
-      await expect(service.fileExists('test-doc/test.pdf')).rejects.toThrow(
-        'Internal error',
-      );
+      await expect(service.fileExists('test-doc/test.pdf')).rejects.toThrow('Internal error');
     });
   });
 });

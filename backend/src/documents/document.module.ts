@@ -11,12 +11,7 @@ import { Neo4jModule } from '../infrastructure/neo4j/neo4j.module';
 import { RustfsModule } from '../infrastructure/rustfs/rustfs.module';
 
 @Module({
-  imports: [
-    TypeOrmModule.forFeature([Document, Chunk]),
-    FileProcessorModule,
-    Neo4jModule,
-    RustfsModule,
-  ],
+  imports: [TypeOrmModule.forFeature([Document, Chunk]), FileProcessorModule, Neo4jModule, RustfsModule],
   controllers: [DocumentController, ChunkController],
   providers: [DocumentService, ChunkService],
   exports: [DocumentService, ChunkService],

@@ -14,11 +14,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentService } from './document.service';
 import { FileProcessorService } from '../infrastructure/file-processor/file-processor.service';
 import { RustfsService } from '../infrastructure/rustfs/rustfs.service';
-import {
-  Document,
-  FileType,
-  DocumentStatus,
-} from '../entities/document.entity';
+import { Document, FileType, DocumentStatus } from '../entities/document.entity';
 
 const FILE_TYPE_MAP: Record<string, FileType> = {
   '.pdf': FileType.PDF,
@@ -55,10 +51,7 @@ export class DocumentController {
 
   @Post()
   @UseInterceptors(FileInterceptor('file'))
-  async uploadFile(
-    @UploadedFile() file: Express.Multer.File,
-    @Body() body: { url?: string },
-  ) {
+  async uploadFile(@UploadedFile() file: Express.Multer.File, @Body() body: { url?: string }) {
     this.logger.debug(
       `[uploadFile] 开始处理文件上传请求 - file: ${file ? file.originalname : 'undefined'}, url: ${body.url ? '***URL***' : 'undefined'}, file.path: ${file ? file.path : 'undefined'}`,
     );
@@ -74,9 +67,7 @@ export class DocumentController {
         status: DocumentStatus.PROCESSING,
       });
     } else if (file) {
-      const ext = file.originalname
-        .toLowerCase()
-        .substring(file.originalname.lastIndexOf('.'));
+      const ext = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'));
       const fileType = FILE_TYPE_MAP[ext] || FileType.TXT;
 
       document = await this.documentService.create({
@@ -88,11 +79,7 @@ export class DocumentController {
       });
 
       const rustfsKey = `${document.id}/${file.originalname}`;
-      rustfsUrl = await this.rustfsService.uploadFile(
-        rustfsKey,
-        file.buffer,
-        file.mimetype,
-      );
+      rustfsUrl = await this.rustfsService.uploadFile(rustfsKey, file.buffer, file.mimetype);
 
       await this.documentService.update(document.id, {
         path: rustfsUrl,
@@ -113,11 +100,7 @@ export class DocumentController {
         `[uploadFile] 文件路径处理完成 - filePath: ${filePath ? '***REDACTED***' : 'undefined'}, fileName: ${fileName ? fileName.substring(0, 50) + (fileName.length > 50 ? '...' : '') : 'undefined'}, document.type: ${document.type}`,
       );
 
-      const { text, metadata } = await this.fileProcessorService.processFile(
-        filePath,
-        fileName,
-        document.type,
-      );
+      const { text, metadata } = await this.fileProcessorService.processFile(filePath, fileName, document.type);
 
       await this.documentService.update(document.id, {
         status: DocumentStatus.PROCESSED,
@@ -131,23 +114,17 @@ export class DocumentController {
         chunkCount: chunks.length,
       });
 
-      this.logger.debug(
-        `[uploadFile] 文件处理完成 - document.id: ${document.id}, chunkCount: ${chunks.length}`,
-      );
+      this.logger.debug(`[uploadFile] 文件处理完成 - document.id: ${document.id}, chunkCount: ${chunks.length}`);
 
       return {
         success: true,
         data: await this.documentService.findById(document.id),
       };
     } catch (error: unknown) {
-      const errorMessage =
-        error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
       const stackTrace = error instanceof Error ? error.stack : undefined;
 
-      this.logger.error(
-        `[uploadFile] 文件处理失败 - document.id: ${document.id}, error: ${errorMessage}`,
-        stackTrace,
-      );
+      this.logger.error(`[uploadFile] 文件处理失败 - document.id: ${document.id}, error: ${errorMessage}`, stackTrace);
 
       await this.documentService.update(document.id, {
         status: DocumentStatus.FAILED,
@@ -165,11 +142,7 @@ export class DocumentController {
   ) {
     const validPage = Math.max(1, page);
     const skip = (validPage - 1) * limit;
-    const [documents, total] = await this.documentService.findAll(
-      name,
-      skip,
-      limit,
-    );
+    const [documents, total] = await this.documentService.findAll(name, skip, limit);
 
     return {
       success: true,

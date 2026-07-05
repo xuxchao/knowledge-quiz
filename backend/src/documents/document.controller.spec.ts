@@ -8,11 +8,7 @@ import { SpeechService } from '../infrastructure/speech/speech.service';
 import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
 import { RustfsService } from '../infrastructure/rustfs/rustfs.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
-import {
-  Document,
-  FileType,
-  DocumentStatus,
-} from '../entities/document.entity';
+import { Document, FileType, DocumentStatus } from '../entities/document.entity';
 
 describe('DocumentController', () => {
   let controller: DocumentController;
@@ -21,9 +17,7 @@ describe('DocumentController', () => {
   let rustfsService: RustfsService;
 
   const mockRustfsService = {
-    uploadFile: jest
-      .fn()
-      .mockResolvedValue('http://localhost:9004/documents/test-uuid/test.pdf'),
+    uploadFile: jest.fn().mockResolvedValue('http://localhost:9004/documents/test-uuid/test.pdf'),
     getBucket: jest.fn().mockReturnValue('documents'),
   };
 
@@ -78,9 +72,7 @@ describe('DocumentController', () => {
         {
           provide: getRepositoryToken(Document),
           useValue: {
-            create: jest
-              .fn()
-              .mockImplementation((data) => ({ id: 'test-uuid', ...data })),
+            create: jest.fn().mockImplementation((data) => ({ id: 'test-uuid', ...data })),
             save: jest.fn().mockResolvedValue({
               id: 'test-uuid',
               name: 'test',
@@ -109,8 +101,7 @@ describe('DocumentController', () => {
 
     controller = module.get<DocumentController>(DocumentController);
     documentService = module.get<DocumentService>(DocumentService);
-    fileProcessorService =
-      module.get<FileProcessorService>(FileProcessorService);
+    fileProcessorService = module.get<FileProcessorService>(FileProcessorService);
     rustfsService = module.get<RustfsService>(RustfsService);
   });
 
@@ -130,9 +121,7 @@ describe('DocumentController', () => {
       ];
       const mockCount = 10;
 
-      jest
-        .spyOn(documentService, 'findAll')
-        .mockResolvedValue([mockDocuments, mockCount]);
+      jest.spyOn(documentService, 'findAll').mockResolvedValue([mockDocuments, mockCount]);
 
       const result = await controller.listDocuments('', 1, 10);
 
@@ -178,9 +167,7 @@ describe('DocumentController', () => {
     it('should return document by id', async () => {
       const mockDocument = { id: '1', name: 'test', chunks: [] };
 
-      jest
-        .spyOn(documentService, 'findById')
-        .mockResolvedValue(mockDocument as Document);
+      jest.spyOn(documentService, 'findById').mockResolvedValue(mockDocument as Document);
 
       const result = await controller.getDocument('1');
 
@@ -194,17 +181,13 @@ describe('DocumentController', () => {
     it('should throw error if document not found', async () => {
       jest.spyOn(documentService, 'findById').mockResolvedValue(null);
 
-      await expect(controller.getDocument('non-existent')).rejects.toThrow(
-        'Document not found',
-      );
+      await expect(controller.getDocument('non-existent')).rejects.toThrow('Document not found');
     });
 
     it('should handle empty id', async () => {
       jest.spyOn(documentService, 'findById').mockResolvedValue(null);
 
-      await expect(controller.getDocument('')).rejects.toThrow(
-        'Document not found',
-      );
+      await expect(controller.getDocument('')).rejects.toThrow('Document not found');
     });
   });
 
@@ -212,9 +195,7 @@ describe('DocumentController', () => {
     it('should delete document successfully', async () => {
       const mockDocument = { id: '1', name: 'test', chunks: [] };
 
-      jest
-        .spyOn(documentService, 'findById')
-        .mockResolvedValue(mockDocument as Document);
+      jest.spyOn(documentService, 'findById').mockResolvedValue(mockDocument as Document);
       jest.spyOn(documentService, 'delete').mockResolvedValue();
 
       const result = await controller.deleteDocument('1');
@@ -230,17 +211,13 @@ describe('DocumentController', () => {
     it('should throw error if document not found', async () => {
       jest.spyOn(documentService, 'findById').mockResolvedValue(null);
 
-      await expect(controller.deleteDocument('non-existent')).rejects.toThrow(
-        'Document not found',
-      );
+      await expect(controller.deleteDocument('non-existent')).rejects.toThrow('Document not found');
     });
 
     it('should handle empty id', async () => {
       jest.spyOn(documentService, 'findById').mockResolvedValue(null);
 
-      await expect(controller.deleteDocument('')).rejects.toThrow(
-        'Document not found',
-      );
+      await expect(controller.deleteDocument('')).rejects.toThrow('Document not found');
     });
   });
 
@@ -282,25 +259,14 @@ describe('DocumentController', () => {
         }),
       });
       expect(documentService.create).toHaveBeenCalled();
-      expect(rustfsService.uploadFile).toHaveBeenCalledWith(
-        'test-uuid/test.pdf',
-        mockFile.buffer,
-        mockFile.mimetype,
-      );
+      expect(rustfsService.uploadFile).toHaveBeenCalledWith('test-uuid/test.pdf', mockFile.buffer, mockFile.mimetype);
       expect(fileProcessorService.processFile).toHaveBeenCalled();
-      expect(fileProcessorService.chunkText).toHaveBeenCalledWith(
-        'test content',
-      );
-      expect(fileProcessorService.storeChunks).toHaveBeenCalledWith(
-        'test-uuid',
-        ['chunk1', 'chunk2'],
-      );
+      expect(fileProcessorService.chunkText).toHaveBeenCalledWith('test content');
+      expect(fileProcessorService.storeChunks).toHaveBeenCalledWith('test-uuid', ['chunk1', 'chunk2']);
     });
 
     it('should throw error if no file or URL provided', async () => {
-      await expect(controller.uploadFile(null, {})).rejects.toThrow(
-        'No file or URL provided',
-      );
+      await expect(controller.uploadFile(null, {})).rejects.toThrow('No file or URL provided');
     });
 
     it('should handle file processing failure', async () => {
@@ -317,13 +283,9 @@ describe('DocumentController', () => {
         type: FileType.PDF,
         status: DocumentStatus.PROCESSING,
       } as Document);
-      jest
-        .spyOn(fileProcessorService, 'processFile')
-        .mockRejectedValue(new Error('Processing failed'));
+      jest.spyOn(fileProcessorService, 'processFile').mockRejectedValue(new Error('Processing failed'));
 
-      await expect(controller.uploadFile(mockFile, {})).rejects.toThrow(
-        'File processing failed: Processing failed',
-      );
+      await expect(controller.uploadFile(mockFile, {})).rejects.toThrow('File processing failed: Processing failed');
     });
 
     it('should handle URL upload', async () => {

@@ -118,7 +118,7 @@ export class DocumentController {
 
       return {
         success: true,
-        data: await this.documentService.findById(document.id),
+        data: await this.documentService.findByIdWithChunks(document.id),
       };
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -158,7 +158,7 @@ export class DocumentController {
 
   @Get(':id')
   async getDocument(@Param('id') id: string) {
-    const document = await this.documentService.findById(id);
+    const document = await this.documentService.findByIdWithChunks(id);
     if (!document) {
       throw new Error('Document not found');
     }
@@ -170,7 +170,7 @@ export class DocumentController {
 
   @Delete(':id')
   async deleteDocument(@Param('id') id: string) {
-    const document = await this.documentService.findById(id);
+    const document = await this.documentService.findById(id, false);
     if (!document) {
       throw new Error('Document not found');
     }

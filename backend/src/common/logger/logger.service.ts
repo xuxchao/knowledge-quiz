@@ -3,6 +3,15 @@ import { getCallSiteInfo } from './callsite.util';
 import { LogLevel, LogEntry, formatJson, formatConsole, createLogEntry } from './formatters';
 import { LoggerConfigRegistry, shouldLog, LoggerConfig, ModuleConfig } from './logger.config';
 
+const FRAMEWORK_CONTEXTS = [
+  'RoutesResolver',
+  'RouterExplorer',
+  'NestFactory',
+  'InstanceLoader',
+  'Injector',
+  'ModuleRef',
+];
+
 @Injectable()
 export class LoggerService implements NestLoggerService {
   private configRegistry: LoggerConfigRegistry;
@@ -48,7 +57,12 @@ export class LoggerService implements NestLoggerService {
   private writeLog(message: string, level: LogLevel, context?: string, stackTrace?: string): void {
     const moduleName = context || this.moduleName;
 
+    const isFrameworkLog = FRAMEWORK_CONTEXTS.includes(moduleName);
     if (!this.configRegistry.isModuleEnabled(moduleName)) {
+      return;
+    }
+
+    if (isFrameworkLog && this.configRegistry.getGlobalLevel() !== 'DEBUG') {
       return;
     }
 

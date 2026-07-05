@@ -17,11 +17,15 @@ export class DocumentService {
     return this.documentRepository.save(document);
   }
 
-  async findById(id: string): Promise<Document | null> {
+  async findById(id: string, loadChunks: boolean = false): Promise<Document | null> {
     return this.documentRepository.findOne({
       where: { id },
-      relations: { chunks: true },
+      relations: loadChunks ? { chunks: true } : {},
     });
+  }
+
+  async findByIdWithChunks(id: string): Promise<Document | null> {
+    return this.findById(id, true);
   }
 
   async findAll(name?: string, skip: number = 0, limit: number = 10): Promise<[Document[], number]> {
@@ -39,7 +43,7 @@ export class DocumentService {
 
   async update(id: string, data: Record<string, unknown>): Promise<Document | null> {
     await this.documentRepository.update(id, data);
-    return this.findById(id);
+    return this.findById(id, false);
   }
 
   async delete(id: string): Promise<void> {

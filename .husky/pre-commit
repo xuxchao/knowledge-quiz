@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+. "$(dirname -- "$0")/_/husky.sh"
+
+cd backend && pnpm lint --quiet 2>&1 | head -50 || exit 1
+cd ../frontend && pnpm lint --quiet 2>&1 | head -50 || exit 1

@@ -16,7 +16,9 @@ describe('DocumentService', () => {
         {
           provide: getRepositoryToken(Document),
           useValue: {
-            create: jest.fn().mockImplementation((data) => ({ id: 'test-id', ...data })),
+            create: jest
+              .fn()
+              .mockImplementation((data) => ({ id: 'test-id', ...data })),
             save: jest.fn().mockResolvedValue({ id: 'test-id', name: 'test' }),
             findOne: jest.fn().mockResolvedValue({ id: 'test-id', chunks: [] }),
             createQueryBuilder: jest.fn().mockReturnValue({
@@ -55,7 +57,11 @@ describe('DocumentService', () => {
   describe('create', () => {
     it('should create document successfully', async () => {
       const createData = { name: 'Test Document', type: 'pdf' };
-      const expectedResult = { id: 'test-id', name: 'Test Document', type: 'pdf' };
+      const expectedResult = {
+        id: 'test-id',
+        name: 'Test Document',
+        type: 'pdf',
+      };
 
       documentRepository.create.mockReturnValue(expectedResult);
       documentRepository.save.mockResolvedValue(expectedResult);
@@ -126,7 +132,9 @@ describe('DocumentService', () => {
         orderBy: jest.fn().mockReturnThis(),
         skip: jest.fn().mockReturnThis(),
         take: jest.fn().mockReturnThis(),
-        getManyAndCount: jest.fn().mockResolvedValue([mockDocuments, mockCount]),
+        getManyAndCount: jest
+          .fn()
+          .mockResolvedValue([mockDocuments, mockCount]),
       });
 
       const [documents, count] = await service.findAll('test', 0, 10);
@@ -188,7 +196,9 @@ describe('DocumentService', () => {
       const result = await service.update('test-id', { name: 'Updated' });
 
       expect(result).toEqual(mockDocument);
-      expect(documentRepository.update).toHaveBeenCalledWith('test-id', { name: 'Updated' });
+      expect(documentRepository.update).toHaveBeenCalledWith('test-id', {
+        name: 'Updated',
+      });
       expect(documentRepository.findOne).toHaveBeenCalled();
     });
 
@@ -228,7 +238,11 @@ describe('DocumentService', () => {
     });
 
     it('should update document status with error message', async () => {
-      await service.updateStatus('test-id', DocumentStatus.FAILED, 'Error processing');
+      await service.updateStatus(
+        'test-id',
+        DocumentStatus.FAILED,
+        'Error processing',
+      );
 
       expect(documentRepository.update).toHaveBeenCalledWith('test-id', {
         status: DocumentStatus.FAILED,

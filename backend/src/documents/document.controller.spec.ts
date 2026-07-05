@@ -180,7 +180,7 @@ describe('DocumentController', () => {
 
       jest
         .spyOn(documentService, 'findById')
-        .mockResolvedValue(mockDocument as any);
+        .mockResolvedValue(mockDocument as Document);
 
       const result = await controller.getDocument('1');
 
@@ -214,7 +214,7 @@ describe('DocumentController', () => {
 
       jest
         .spyOn(documentService, 'findById')
-        .mockResolvedValue(mockDocument as any);
+        .mockResolvedValue(mockDocument as Document);
       jest.spyOn(documentService, 'delete').mockResolvedValue();
 
       const result = await controller.deleteDocument('1');

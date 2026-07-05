@@ -31,11 +31,6 @@ export class RustfsService {
       'rustfsadmin',
     );
     const region = configService.get<string>('RUSTFS_REGION', 'us-east-1');
-    const forcePathStyleRaw = configService.get<string>(
-      'RUSTFS_FORCE_PATH_STYLE',
-      'true',
-    );
-    // const forcePathStyle = forcePathStyleRaw === 'true';
 
     this.bucket = configService.get<string>('RUSTFS_BUCKET', 'documents');
 

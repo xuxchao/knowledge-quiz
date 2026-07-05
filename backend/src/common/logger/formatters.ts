@@ -37,18 +37,19 @@ export function formatConsole(entry: LogEntry): string {
   const level = `${color}[${entry.level}]${RESET_COLOR}`;
   const location = `${entry.fileName}:${entry.lineNumber}`;
   const module = `[${entry.module}]`;
-  const functionInfo = entry.functionName !== 'unknown' ? `[${entry.functionName}]` : '';
-  
+  const functionInfo =
+    entry.functionName !== 'unknown' ? `[${entry.functionName}]` : '';
+
   let output = `${timestamp} ${level} ${module} ${functionInfo} ${location} - ${entry.message}`;
-  
+
   if (entry.stackTrace) {
     output += `\n堆栈跟踪:\n${entry.stackTrace}`;
   }
-  
+
   if (entry.context && Object.keys(entry.context).length > 0) {
     output += `\n上下文: ${JSON.stringify(entry.context)}`;
   }
-  
+
   return output;
 }
 

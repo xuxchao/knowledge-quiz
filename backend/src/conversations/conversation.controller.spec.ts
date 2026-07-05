@@ -94,7 +94,7 @@ describe('ConversationController', () => {
 
       jest
         .spyOn(conversationService, 'findById')
-        .mockResolvedValue(mockConversation as any);
+        .mockResolvedValue(mockConversation as Conversation);
 
       const result = await controller.getConversation('1');
 
@@ -125,7 +125,7 @@ describe('ConversationController', () => {
 
       jest
         .spyOn(conversationService, 'findById')
-        .mockResolvedValue(mockConversation as any);
+        .mockResolvedValue(mockConversation as Conversation);
 
       const result = await controller.getConversation('1');
 
@@ -139,7 +139,7 @@ describe('ConversationController', () => {
 
       jest
         .spyOn(conversationService, 'findById')
-        .mockResolvedValue(mockConversation as any);
+        .mockResolvedValue(mockConversation as Conversation);
       jest.spyOn(conversationService, 'delete').mockResolvedValue();
 
       const result = await controller.deleteConversation('1');
@@ -148,8 +148,12 @@ describe('ConversationController', () => {
         success: true,
         message: 'Conversation deleted successfully',
       });
-      expect(conversationService.findById).toHaveBeenCalledWith('1');
-      expect(conversationService.delete).toHaveBeenCalledWith('1');
+      expect(jest.spyOn(conversationService, 'findById')).toHaveBeenCalledWith(
+        '1',
+      );
+      expect(jest.spyOn(conversationService, 'delete')).toHaveBeenCalledWith(
+        '1',
+      );
     });
 
     it('should throw error if conversation not found', async () => {

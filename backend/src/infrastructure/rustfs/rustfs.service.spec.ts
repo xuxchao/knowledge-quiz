@@ -7,8 +7,6 @@ import {
   GetObjectCommand,
   DeleteObjectCommand,
   HeadObjectCommand,
-  ListBucketsCommand,
-  CreateBucketCommand,
 } from '@aws-sdk/client-s3';
 import { Readable } from 'stream';
 
@@ -16,8 +14,7 @@ jest.mock('@aws-sdk/client-s3');
 
 describe('RustfsService', () => {
   let service: RustfsService;
-  let configService: any;
-  let s3Client: any;
+  let configService: jest.Mocked<Record<string, jest.Mock>>;
 
   beforeEach(async () => {
     configService = {
@@ -50,7 +47,6 @@ describe('RustfsService', () => {
     }).compile();
 
     service = module.get<RustfsService>(RustfsService);
-    s3Client = new S3Client({});
   });
 
   afterEach(() => {

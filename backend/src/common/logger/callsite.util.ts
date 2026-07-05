@@ -7,13 +7,14 @@ export interface CallSiteInfo {
 }
 
 export function getCallSiteInfo(skipFrames: number = 3): CallSiteInfo {
+  // eslint-disable-next-line @typescript-eslint/unbound-method
   const originalPrepareStackTrace = Error.prepareStackTrace;
-  
+
   try {
-    Error.prepareStackTrace = (_, stack) => stack;
+    Error.prepareStackTrace = (_: Error, stack: NodeJS.CallSite[]) => stack;
     const error = new Error();
     const stack = error.stack as unknown as NodeJS.CallSite[];
-    
+
     const frame = stack?.[skipFrames];
     if (!frame) {
       return {
@@ -24,11 +25,11 @@ export function getCallSiteInfo(skipFrames: number = 3): CallSiteInfo {
         methodName: 'unknown',
       };
     }
-    
+
     const fileName = frame.getFileName() || 'unknown';
     const functionName = frame.getFunctionName() || 'unknown';
     const methodName = frame.getMethodName() || 'unknown';
-    
+
     return {
       fileName: fileName.split('/').pop() || fileName,
       lineNumber: frame.getLineNumber() || 0,

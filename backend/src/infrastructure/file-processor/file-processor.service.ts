@@ -81,11 +81,12 @@ export class FileProcessorService {
     const textResult = await pdf.getText();
     const infoResult = await pdf.getInfo();
     await pdf.destroy();
+    const info = (infoResult.info as Record<string, unknown>) || {};
     return {
       text: textResult.text || '',
       metadata: {
-        author: infoResult.info?.Author,
-        title: infoResult.info?.Title,
+        author: info.Author,
+        title: info.Title,
         numPages: infoResult.total,
       },
     };

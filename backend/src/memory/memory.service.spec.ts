@@ -5,7 +5,7 @@ import { RedisService } from '../infrastructure/redis/redis.service';
 
 describe('MemoryService', () => {
   let service: MemoryService;
-  let redisService: RedisService;
+  let redisService: jest.Mocked<RedisService>;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({

@@ -26,6 +26,10 @@ async function bootstrap() {
 
 bootstrap().catch((error) => {
   const logger = new LoggerService('Bootstrap');
-  logger.error('应用启动失败', error instanceof Error ? error.stack : undefined, 'Bootstrap');
+  logger.error(
+    '应用启动失败',
+    error instanceof Error ? error.stack : undefined,
+    'Bootstrap',
+  );
   process.exit(1);
 });

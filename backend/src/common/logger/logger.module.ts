@@ -24,18 +24,21 @@ export interface LoggerModuleOptions {
 })
 export class LoggerModule {
   static forRoot(options?: LoggerModuleOptions) {
+    const configRegistry = new LoggerConfigRegistry(options?.config);
+    LoggerService.setGlobalConfigRegistry(configRegistry);
+
     return {
       module: LoggerModule,
       providers: [
         {
           provide: LoggerConfigRegistry,
-          useValue: new LoggerConfigRegistry(options?.config),
+          useValue: configRegistry,
         },
         {
           provide: LoggerService,
-          useFactory: (configRegistry: LoggerConfigRegistry) => {
+          useFactory: (registry: LoggerConfigRegistry) => {
             const logger = new LoggerService('LoggerModule');
-            logger.setConfigRegistry(configRegistry);
+            logger.setConfigRegistry(registry);
             return logger;
           },
           inject: [LoggerConfigRegistry],

@@ -294,11 +294,17 @@ export class FileProcessorService {
   }
 
   chunkText(text: string, chunkSize: number = 500, chunkOverlap: number = 50): string[] {
+    if (!text || text.length === 0) {
+      return [];
+    }
+
     const chunks: string[] = [];
     let start = 0;
+    const safeChunkSize = Math.max(1, chunkSize);
+    const safeOverlap = Math.max(0, Math.min(chunkOverlap, Math.floor(safeChunkSize / 2)));
 
     while (start < text.length) {
-      const end = Math.min(start + chunkSize, text.length);
+      const end = Math.min(start + safeChunkSize, text.length);
       let chunk = text.substring(start, end);
 
       if (end < text.length) {
@@ -306,13 +312,22 @@ export class FileProcessorService {
         const lastNewline = chunk.lastIndexOf('\n');
         const splitPoint = Math.max(lastPeriod, lastNewline);
 
-        if (splitPoint > start + chunkOverlap) {
+        if (splitPoint > start + safeOverlap) {
           chunk = text.substring(start, splitPoint + 1);
         }
       }
 
-      chunks.push(chunk.trim());
-      start = end - chunkOverlap;
+      const trimmedChunk = chunk.trim();
+      if (trimmedChunk.length > 0) {
+        chunks.push(trimmedChunk);
+      }
+
+      const nextStart = end - safeOverlap;
+      if (nextStart <= start) {
+        start = end;
+      } else {
+        start = nextStart;
+      }
     }
 
     return chunks;
@@ -320,17 +335,44 @@ export class FileProcessorService {
 
   @LogServiceCall()
   async storeChunks(documentId: string, chunks: string[]): Promise<void> {
-    const embeddings = await this.aiService.generateEmbeddings(chunks);
+    if (!chunks || chunks.length === 0) {
+      this.logger.warn(`文档 ${documentId} 没有可存储的分块`);
+      return;
+    }
 
-    const documents = chunks.map((content, i) => ({
-      content,
-      metadata: {
-        documentId,
-        chunkIndex: i,
-        totalChunks: chunks.length,
-      },
-    }));
+    const batchSize = 10;
+    const totalChunks = chunks.length;
+    let processedCount = 0;
 
-    await this.neo4jService.addDocuments(documents, embeddings);
+    this.logger.debug(`开始存储文档 ${documentId} 的 ${totalChunks} 个分块，每批处理 ${batchSize} 个`);
+
+    for (let i = 0; i < chunks.length; i += batchSize) {
+      const end = Math.min(i + batchSize, chunks.length);
+      const batchChunks = chunks.slice(i, end);
+
+      if (batchChunks.length === 0) {
+        continue;
+      }
+
+      const batchIndices = Array.from({ length: batchChunks.length }, (_, j) => i + j);
+
+      const embeddings = await this.aiService.generateEmbeddings(batchChunks);
+
+      const documents = batchChunks.map((content, j) => ({
+        content,
+        metadata: {
+          documentId,
+          chunkIndex: batchIndices[j],
+          totalChunks,
+        },
+      }));
+
+      await this.neo4jService.addDocuments(documents, embeddings);
+
+      processedCount += batchChunks.length;
+      this.logger.debug(`文档 ${documentId} 分块存储进度: ${processedCount}/${totalChunks}`);
+    }
+
+    this.logger.info(`文档 ${documentId} 分块存储完成，共存储 ${processedCount} 个分块`);
   }
 }

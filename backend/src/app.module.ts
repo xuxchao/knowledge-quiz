@@ -16,7 +16,7 @@ import { LoggerModule } from './common/logger';
     }),
     LoggerModule.forRoot({
       config: {
-        globalLevel: 'INFO',
+        globalLevel: 'DEBUG',
         globalEnabled: true,
         outputFormat: 'console',
       },

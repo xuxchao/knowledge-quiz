@@ -13,12 +13,22 @@ const FRAMEWORK_CONTEXTS = [
 
 @Injectable()
 export class LoggerService implements NestLoggerService {
+  private static globalConfigRegistry: LoggerConfigRegistry | null = null;
+
   private configRegistry: LoggerConfigRegistry;
   private moduleName: string;
 
   constructor(context?: string) {
     this.moduleName = context || 'Global';
-    this.configRegistry = new LoggerConfigRegistry();
+    this.configRegistry = LoggerService.globalConfigRegistry || new LoggerConfigRegistry();
+  }
+
+  static setGlobalConfigRegistry(registry: LoggerConfigRegistry): void {
+    LoggerService.globalConfigRegistry = registry;
+  }
+
+  static getGlobalConfigRegistry(): LoggerConfigRegistry | null {
+    return LoggerService.globalConfigRegistry;
   }
 
   setConfigRegistry(registry: LoggerConfigRegistry): void {

@@ -78,6 +78,19 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   }
 
   @LogServiceCall()
+  async addDocumentsBatch(
+    documents: { content: string; metadata: Record<string, unknown> }[],
+    embeddings: number[][],
+    batchSize: number = 50,
+  ): Promise<void> {
+    for (let i = 0; i < documents.length; i += batchSize) {
+      const batchDocs = documents.slice(i, Math.min(i + batchSize, documents.length));
+      const batchEmbs = embeddings.slice(i, Math.min(i + batchSize, embeddings.length));
+      await this.addDocuments(batchDocs, batchEmbs);
+    }
+  }
+
+  @LogServiceCall()
   async search(
     queryEmbedding: number[],
     topK: number = 5,

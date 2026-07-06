@@ -32,6 +32,33 @@ export class ChunkService {
   }
 
   @LogServiceCall()
+  async createForDocument(documentId: string, chunks: string[]): Promise<Chunk[]> {
+    await this.chunkRepository.delete({ documentId });
+
+    if (!chunks || chunks.length === 0) {
+      return [];
+    }
+
+    const totalChunks = chunks.length;
+    const chunkEntities = chunks.map((content, chunkIndex) =>
+      this.chunkRepository.create({
+        documentId,
+        content,
+        contentSearch: content,
+        chunkIndex,
+        tokenCount: content.length,
+        metadata: {
+          documentId,
+          chunkIndex,
+          totalChunks,
+        },
+      }),
+    );
+
+    return this.chunkRepository.save(chunkEntities);
+  }
+
+  @LogServiceCall()
   async update(id: string, data: Record<string, unknown>): Promise<Chunk | null> {
     await this.chunkRepository.update(id, data);
     return this.findById(id);

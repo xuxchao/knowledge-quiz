@@ -1,6 +1,7 @@
 import { Controller, Post, Get, Delete, Body, Param, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { DocumentService } from './document.service';
+import { ChunkService } from './chunk.service';
 import { FileProcessorService } from '../infrastructure/file-processor/file-processor.service';
 import { RustfsService } from '../infrastructure/rustfs/rustfs.service';
 import { Document, FileType, DocumentStatus } from '../entities/document.entity';
@@ -35,6 +36,7 @@ export class DocumentController {
 
   constructor(
     private documentService: DocumentService,
+    private chunkService: ChunkService,
     private fileProcessorService: FileProcessorService,
     private rustfsService: RustfsService,
   ) {}
@@ -91,6 +93,7 @@ export class DocumentController {
 
       const chunks = this.fileProcessorService.chunkText(text);
       await this.fileProcessorService.storeChunks(document.id, chunks);
+      await this.chunkService.createForDocument(document.id, chunks);
 
       await this.documentService.update(document.id, {
         chunkCount: chunks.length,

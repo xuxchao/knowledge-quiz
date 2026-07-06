@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigModule } from '@nestjs/config';
 import { DocumentController } from './document.controller';
 import { DocumentService } from './document.service';
+import { ChunkService } from './chunk.service';
 import { FileProcessorService } from '../infrastructure/file-processor/file-processor.service';
 import { AiService } from '../ai/ai.service';
 import { SpeechService } from '../infrastructure/speech/speech.service';
@@ -14,6 +15,7 @@ describe('DocumentController', () => {
   let controller: DocumentController;
   let documentService: DocumentService;
   let fileProcessorService: FileProcessorService;
+  let chunkService: ChunkService;
   let rustfsService: RustfsService;
 
   const mockRustfsService = {
@@ -33,6 +35,10 @@ describe('DocumentController', () => {
     storeChunks: jest.fn(),
   };
 
+  const mockChunkService = {
+    createForDocument: jest.fn(),
+  };
+
   beforeEach(() => {
     jest.clearAllMocks();
     mockFileProcessorService.processFile.mockResolvedValue({
@@ -41,6 +47,7 @@ describe('DocumentController', () => {
     });
     mockFileProcessorService.chunkText.mockReturnValue(['chunk1', 'chunk2']);
     mockFileProcessorService.storeChunks.mockResolvedValue();
+    mockChunkService.createForDocument.mockResolvedValue([]);
   });
 
   beforeEach(async () => {
@@ -49,6 +56,10 @@ describe('DocumentController', () => {
       controllers: [DocumentController],
       providers: [
         DocumentService,
+        {
+          provide: ChunkService,
+          useValue: mockChunkService,
+        },
         {
           provide: FileProcessorService,
           useValue: mockFileProcessorService,
@@ -102,6 +113,7 @@ describe('DocumentController', () => {
     controller = module.get<DocumentController>(DocumentController);
     documentService = module.get<DocumentService>(DocumentService);
     fileProcessorService = module.get<FileProcessorService>(FileProcessorService);
+    chunkService = module.get<ChunkService>(ChunkService);
     rustfsService = module.get<RustfsService>(RustfsService);
   });
 
@@ -263,6 +275,7 @@ describe('DocumentController', () => {
       expect(fileProcessorService.processFile).toHaveBeenCalled();
       expect(fileProcessorService.chunkText).toHaveBeenCalledWith('test content');
       expect(fileProcessorService.storeChunks).toHaveBeenCalledWith('test-uuid', ['chunk1', 'chunk2']);
+      expect(chunkService.createForDocument).toHaveBeenCalledWith('test-uuid', ['chunk1', 'chunk2']);
     });
 
     it('should throw error if no file or URL provided', async () => {
@@ -400,6 +413,7 @@ describe('DocumentController', () => {
 
       expect(result.success).toBe(true);
       expect(result.data.chunkCount).toBe(0);
+      expect(chunkService.createForDocument).toHaveBeenCalledWith('test-uuid', []);
     });
   });
 });

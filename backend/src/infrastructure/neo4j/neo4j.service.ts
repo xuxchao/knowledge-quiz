@@ -4,6 +4,9 @@ import { Driver, auth } from 'neo4j-driver';
 import neo4j from 'neo4j-driver';
 import { LoggerService, LogServiceCall } from '../../common/logger';
 
+type Neo4jPrimitive = string | number | boolean;
+type Neo4jPropertyValue = Neo4jPrimitive | Neo4jPrimitive[];
+
 @Injectable()
 export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new LoggerService(Neo4jService.name);
@@ -59,16 +62,11 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
       for (let i = 0; i < documents.length; i++) {
         await session.run(
           `
-          CREATE (c:DocumentChunk {
-            content: $content,
-            metadata: $metadata,
-            embedding: $embedding
-          })
+          CREATE (c:DocumentChunk)
+          SET c += $properties
         `,
           {
-            content: documents[i].content,
-            metadata: documents[i].metadata,
-            embedding: embeddings[i],
+            properties: this.buildDocumentChunkProperties(documents[i], embeddings[i]),
           },
         );
       }
@@ -101,7 +99,7 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
         `
         CALL db.index.vector.queryNodes('document_embeddings', $topK, $queryEmbedding)
         YIELD node, score
-        RETURN node.content AS content, node.metadata AS metadata, score
+        RETURN node.content AS content, properties(node) AS properties, score
         ORDER BY score DESC
       `,
         {
@@ -112,7 +110,7 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
 
       return result.records.map((record) => ({
         content: record.get('content') as string,
-        metadata: record.get('metadata') as Record<string, unknown>,
+        metadata: this.extractMetadata(record.get('properties') as Record<string, unknown>),
         score: record.get('score') as number,
       }));
     } finally {
@@ -127,7 +125,7 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
       await session.run(
         `
         MATCH (c:DocumentChunk)
-        WHERE c.metadata.documentId = $documentId
+        WHERE c.documentId = $documentId
         DELETE c
       `,
         { documentId },
@@ -135,5 +133,58 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
     } finally {
       await session.close();
     }
+  }
+
+  private buildDocumentChunkProperties(
+    document: { content: string; metadata: Record<string, unknown> },
+    embedding: number[],
+  ): Record<string, Neo4jPropertyValue> {
+    return {
+      content: document.content,
+      embedding,
+      ...this.toNeo4jProperties(document.metadata),
+    };
+  }
+
+  private toNeo4jProperties(metadata: Record<string, unknown>): Record<string, Neo4jPropertyValue> {
+    return Object.entries(metadata).reduce<Record<string, Neo4jPropertyValue>>((properties, [key, value]) => {
+      const propertyValue = this.toNeo4jPropertyValue(value);
+
+      if (propertyValue !== undefined) {
+        properties[key] = propertyValue;
+      }
+
+      return properties;
+    }, {});
+  }
+
+  private toNeo4jPropertyValue(value: unknown): Neo4jPropertyValue | undefined {
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return value;
+    }
+
+    if (Array.isArray(value)) {
+      const primitiveValues = value.filter((item): item is Neo4jPrimitive => this.isNeo4jPrimitive(item));
+      const firstType = primitiveValues.length > 0 ? typeof primitiveValues[0] : undefined;
+      const isSupportedArray =
+        primitiveValues.length === value.length && primitiveValues.every((item) => typeof item === firstType);
+
+      return isSupportedArray ? primitiveValues : JSON.stringify(value);
+    }
+
+    if (value === null || value === undefined) {
+      return undefined;
+    }
+
+    return JSON.stringify(value);
+  }
+
+  private isNeo4jPrimitive(value: unknown): value is Neo4jPrimitive {
+    return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
+  }
+
+  private extractMetadata(properties: Record<string, unknown>): Record<string, unknown> {
+    const { content: _content, embedding: _embedding, ...metadata } = properties;
+    return metadata;
   }
 }

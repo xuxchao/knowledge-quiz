@@ -175,7 +175,7 @@ describe('DocumentController', () => {
         success: true,
         data: mockDocument,
       });
-      expect(documentService.findById).toHaveBeenCalledWith('1');
+      expect(documentService.findById).toHaveBeenCalledWith('1', true);
     });
 
     it('should throw error if document not found', async () => {
@@ -204,7 +204,7 @@ describe('DocumentController', () => {
         success: true,
         message: 'Document deleted successfully',
       });
-      expect(documentService.findById).toHaveBeenCalledWith('1');
+      expect(documentService.findById).toHaveBeenCalledWith('1', false);
       expect(documentService.delete).toHaveBeenCalledWith('1');
     });
 

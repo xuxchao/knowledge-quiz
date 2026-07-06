@@ -123,8 +123,8 @@ describe('FileProcessorService', () => {
     it('should handle empty chunks', async () => {
       await service.storeChunks('doc-1', []);
 
-      expect(aiService.generateEmbeddings).toHaveBeenCalledWith([]);
-      expect(neo4jService.addDocuments).toHaveBeenCalled();
+      expect(aiService.generateEmbeddings).not.toHaveBeenCalled();
+      expect(neo4jService.addDocuments).not.toHaveBeenCalled();
     });
   });
 

@@ -4,7 +4,10 @@
   "description": "Knowledge Quiz 2 - Monorepo",
   "private": true,
   "scripts": {
-    "prepare": "husky install"
+    "prepare": "husky install",
+    "db:reset": "node scripts/reset-databases.js",
+    "db:reset:yes": "node scripts/reset-databases.js --yes",
+    "db:reset:check": "node scripts/reset-databases.js --check"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.0.0",

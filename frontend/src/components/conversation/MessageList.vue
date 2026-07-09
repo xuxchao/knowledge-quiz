@@ -9,7 +9,7 @@ const props = defineProps<{
   isLoading: boolean;
 }>();
 
-const md = new MarkdownIt();
+const md = new MarkdownIt({ html: false });
 const containerRef = ref<HTMLElement | null>(null);
 
 const scrollToBottom = async (): Promise<void> => {
@@ -68,11 +68,13 @@ const speakText = (text: string): void => {
             </button>
           </div>
           <div v-if="msg.role === 'user'" class="text-sm font-medium text-blue-100 mb-2">用户</div>
+          <!-- eslint-disable vue/no-v-html -->
           <div
             v-if="msg.role === 'assistant'"
             class="prose prose-sm max-w-none"
             v-html="md.render(msg.content)"
           ></div>
+          <!-- eslint-enable vue/no-v-html -->
           <p v-else class="whitespace-pre-wrap">{{ msg.content }}</p>
         </div>
       </div>

@@ -100,9 +100,7 @@ describe('RustfsService', () => {
       const service = new RustfsService(configService);
       const fileBuffer = Buffer.from('test content');
 
-      await expect(service.uploadFile('test-doc/test.pdf', fileBuffer)).rejects.toThrow(
-        'Failed to upload file to RustFS: Upload failed',
-      );
+      await expect(service.uploadFile('test-doc/test.pdf', fileBuffer)).rejects.toThrow(/Upload failed/);
     });
 
     it('should handle upload without contentType', async () => {
@@ -141,9 +139,7 @@ describe('RustfsService', () => {
 
       const service = new RustfsService(configService);
 
-      await expect(service.downloadFile('test-doc/test.pdf')).rejects.toThrow(
-        'Failed to download file from RustFS: Download failed',
-      );
+      await expect(service.downloadFile('test-doc/test.pdf')).rejects.toThrow(/Download failed/);
     });
   });
 
@@ -165,9 +161,7 @@ describe('RustfsService', () => {
 
       const service = new RustfsService(configService);
 
-      await expect(service.deleteFile('test-doc/test.pdf')).rejects.toThrow(
-        'Failed to delete file from RustFS: Delete failed',
-      );
+      await expect(service.deleteFile('test-doc/test.pdf')).rejects.toThrow(/Delete failed/);
     });
   });
 

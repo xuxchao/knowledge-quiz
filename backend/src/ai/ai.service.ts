@@ -69,8 +69,11 @@ export class AiService implements OnModuleInit {
       { role: 'user', content: query },
     ]);
     for await (const chunk of stream) {
-      const content = typeof chunk.content === 'string' ? chunk.content : JSON.stringify(chunk.content || '');
-      yield content;
+      this.logger.debug(
+        `接收到AI响应片段 - 片段: ${chunk.text.substring(0, 50)}${chunk.text.length > 50 ? '...' : ''}`,
+      );
+      // const content = typeof chunk.content === 'string' ? chunk.content : JSON.stringify(chunk.content || '');
+      yield chunk.text;
     }
   }
 }

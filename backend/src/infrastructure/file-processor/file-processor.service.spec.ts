@@ -1,4 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import * as fs from 'fs';
+import * as path from 'path';
 import { FileProcessorService } from './file-processor.service';
 import { FileType } from '../../entities/document.entity';
 import { AiService } from '../../ai/ai.service';
@@ -13,7 +15,19 @@ describe('FileProcessorService', () => {
   let neo4jService: jest.Mocked<Record<string, jest.Mock>>;
   let rustfsService: jest.Mocked<Record<string, jest.Mock>>;
 
+  const testTxtPath = path.join(process.cwd(), 'test.txt');
+  const testMdPath = path.join(process.cwd(), 'test.md');
+  const testJsonPath = path.join(process.cwd(), 'test.json');
+  const testMp3Path = path.join(process.cwd(), 'test.mp3');
+  const testMp4Path = path.join(process.cwd(), 'test.mp4');
+
   beforeEach(async () => {
+    fs.writeFileSync(testTxtPath, 'test content');
+    fs.writeFileSync(testMdPath, 'test content');
+    fs.writeFileSync(testJsonPath, JSON.stringify({ key: 'value', num: 123 }));
+    fs.writeFileSync(testMp3Path, 'audio content');
+    fs.writeFileSync(testMp4Path, 'video content');
+
     aiService = {
       getChatModel: jest.fn().mockReturnValue({
         invoke: jest.fn().mockResolvedValue({ content: 'Image description' }),
@@ -49,6 +63,21 @@ describe('FileProcessorService', () => {
 
   afterEach(() => {
     jest.resetAllMocks();
+    if (fs.existsSync(testTxtPath)) {
+      fs.unlinkSync(testTxtPath);
+    }
+    if (fs.existsSync(testMdPath)) {
+      fs.unlinkSync(testMdPath);
+    }
+    if (fs.existsSync(testJsonPath)) {
+      fs.unlinkSync(testJsonPath);
+    }
+    if (fs.existsSync(testMp3Path)) {
+      fs.unlinkSync(testMp3Path);
+    }
+    if (fs.existsSync(testMp4Path)) {
+      fs.unlinkSync(testMp4Path);
+    }
   });
 
   it('should be defined', () => {
@@ -56,34 +85,34 @@ describe('FileProcessorService', () => {
   });
 
   describe('chunkText', () => {
-    it('should split text into chunks', () => {
+    it('should split text into chunks', async () => {
       const text = 'Hello world. This is a test. Another sentence here.';
 
-      const chunks = service.chunkText(text, 20, 5);
+      const chunks = await service.chunkText(text, 20, 5);
 
       expect(Array.isArray(chunks)).toBe(true);
       expect(chunks.length).toBeGreaterThan(0);
     });
 
-    it('should handle small text without chunking', () => {
+    it('should handle small text without chunking', async () => {
       const text = 'Short text';
 
-      const chunks = service.chunkText(text, 100, 10);
+      const chunks = await service.chunkText(text, 100, 10);
 
       expect(chunks).toHaveLength(1);
       expect(chunks[0]).toBe(text);
     });
 
-    it('should handle empty text', () => {
-      const chunks = service.chunkText('');
+    it('should handle empty text', async () => {
+      const chunks = await service.chunkText('');
 
       expect(chunks).toEqual([]);
     });
 
-    it('should respect chunkSize and chunkOverlap', () => {
+    it('should respect chunkSize and chunkOverlap', async () => {
       const text = 'A'.repeat(600);
 
-      const chunks = service.chunkText(text, 200, 50);
+      const chunks = await service.chunkText(text, 200, 50);
 
       expect(chunks.length).toBeGreaterThan(1);
       chunks.forEach((chunk) => {
@@ -130,16 +159,17 @@ describe('FileProcessorService', () => {
 
   describe('processFile', () => {
     it('should throw error for unsupported file type', async () => {
-      await expect(service.processFile('test.xxx', 'test.xxx', 'unknown' as FileType)).rejects.toThrow(
-        'Unsupported file type: unknown',
-      );
+      await expect(service.processFile('test.xxx', 'test.xxx', 'unknown' as FileType)).rejects.toThrow(/unknown/);
     });
 
     it('should process PDF files', async () => {
+      const loadSpy = jest
+        .spyOn<any, any>(service as any, 'loadWithLoader')
+        .mockResolvedValue({ text: 'pdf text', metadata: {} });
       const result = await service.processFile('test.pdf', 'test.pdf', FileType.PDF);
 
-      expect(result).toHaveProperty('text');
-      expect(result).toHaveProperty('metadata');
+      expect(loadSpy).toHaveBeenCalled();
+      expect(result).toHaveProperty('text', 'pdf text');
     });
 
     it('should process TXT files', async () => {
@@ -157,22 +187,33 @@ describe('FileProcessorService', () => {
     });
 
     it('should process DOCX files', async () => {
+      const loadSpy = jest
+        .spyOn<any, any>(service as any, 'loadWithLoader')
+        .mockResolvedValue({ text: 'docx text', metadata: {} });
       const result = await service.processFile('test.docx', 'test.docx', FileType.DOCX);
 
-      expect(result).toHaveProperty('text');
+      expect(loadSpy).toHaveBeenCalled();
+      expect(result).toHaveProperty('text', 'docx text');
     });
 
     it('should process PPTX files', async () => {
+      const loadSpy = jest
+        .spyOn<any, any>(service as any, 'loadWithLoader')
+        .mockResolvedValue({ text: 'pptx text', metadata: {} });
       const result = await service.processFile('test.pptx', 'test.pptx', FileType.PPTX);
 
-      expect(result).toHaveProperty('text');
-      expect(result.text).toContain('PPTX processing');
+      expect(loadSpy).toHaveBeenCalled();
+      expect(result).toHaveProperty('text', 'pptx text');
     });
 
     it('should process URL', async () => {
+      const processUrlSpy = jest
+        .spyOn<any, any>(service as any, 'processUrl')
+        .mockResolvedValue({ text: 'url text', metadata: {} });
       const result = await service.processFile('https://example.com', 'https://example.com', FileType.URL);
 
-      expect(result).toHaveProperty('text');
+      expect(processUrlSpy).toHaveBeenCalled();
+      expect(result).toHaveProperty('text', 'url text');
       expect(result).toHaveProperty('metadata');
     });
   });
@@ -191,7 +232,9 @@ describe('FileProcessorService', () => {
     it('should handle invalid JSON', async () => {
       rustfsService.downloadFile.mockResolvedValue(Buffer.from('invalid json'));
 
-      await expect(service.processFile('test.json', 'test.json', FileType.JSON)).rejects.toThrow();
+      await expect(
+        service.processFile('http://example.com/test.json', 'http://example.com/test.json', FileType.JSON),
+      ).rejects.toThrow();
     });
   });
 

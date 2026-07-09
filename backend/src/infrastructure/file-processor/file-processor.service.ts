@@ -1,18 +1,21 @@
 import { Injectable } from '@nestjs/common';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
-import * as mammoth from 'mammoth';
 import * as xlsx from 'xlsx';
-import * as cheerio from 'cheerio';
-import fetch from 'node-fetch';
 import sharp from 'sharp';
 import { FileType } from '../../entities/document.entity';
 import { AiService } from '../../ai/ai.service';
 import { SpeechService } from '../speech/speech.service';
 import { Neo4jService } from '../neo4j/neo4j.service';
 import { RustfsService } from '../rustfs/rustfs.service';
-import { PDFParse } from 'pdf-parse';
 import { LoggerService, LogServiceCall } from '../../common/logger';
+import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
+import { DocxLoader } from '@langchain/community/document_loaders/fs/docx';
+import { PPTXLoader } from '@langchain/community/document_loaders/fs/pptx';
+import { CSVLoader } from '@langchain/community/document_loaders/fs/csv';
+import { HTMLWebBaseLoader } from '@langchain/community/document_loaders/web/html';
+import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 
 @Injectable()
 export class FileProcessorService {
@@ -37,6 +40,55 @@ export class FileProcessorService {
     return fs.readFileSync(filePath);
   }
 
+  private createTempFilePath(originalPath: string): string {
+    const extension = path.extname(originalPath) || '.tmp';
+    const tmpFile = `langchain_loader_${Date.now()}_${Math.random().toString(36).slice(2)}${extension}`;
+    return path.join(os.tmpdir(), tmpFile);
+  }
+
+  private writeTempFile(buffer: Buffer, originalPath: string): string {
+    const tempPath = this.createTempFilePath(originalPath);
+    fs.writeFileSync(tempPath, buffer);
+    return tempPath;
+  }
+
+  private async loadWithLoader<
+    T extends { load: () => Promise<Array<{ pageContent: string; metadata?: Record<string, unknown> }>> },
+  >(
+    filePath: string,
+    createLoader: (inputPath: string) => T,
+  ): Promise<{ text: string; metadata: Record<string, unknown> }> {
+    let tempPath = filePath;
+    let needsCleanup = false;
+
+    if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
+      const buffer = await this.getFileBuffer(filePath);
+      tempPath = this.writeTempFile(buffer, filePath);
+      needsCleanup = true;
+    }
+
+    const loader = createLoader(tempPath);
+    const docs = await loader.load();
+    const text = docs
+      .map((doc) => doc.pageContent || '')
+      .join('\n\n')
+      .trim();
+    const metadata = docs.length > 0 ? { pageCount: docs.length, source: filePath } : { source: filePath };
+    if (needsCleanup && fs.existsSync(tempPath)) {
+      try {
+        fs.unlinkSync(tempPath);
+      } catch (e) {
+        this.logger.warn(`无法删除临时文件 ${tempPath}: ${e}`);
+      }
+    }
+
+    return { text, metadata };
+  }
+
+  private normalizeTextChunks(chunks: string[]): string[] {
+    return chunks.map((chunk) => chunk.trim()).filter((chunk) => chunk.length > 0);
+  }
+
   @LogServiceCall()
   async processFile(
     filePath: string,
@@ -55,7 +107,7 @@ export class FileProcessorService {
         return this.processSpreadsheet(filePath);
       case FileType.PPTX:
       case FileType.PPT:
-        return this.processPptx();
+        return this.processPptx(filePath);
       case FileType.TXT:
         return this.processTxt(filePath);
       case FileType.MD:
@@ -77,44 +129,12 @@ export class FileProcessorService {
 
   @LogServiceCall()
   async processPdf(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
-    const dataBuffer = await this.getFileBuffer(filePath);
-    const pdf = new PDFParse({ data: dataBuffer });
-    const textResult = await pdf.getText();
-    const infoResult = await pdf.getInfo();
-    await pdf.destroy();
-    const info = (infoResult.info as Record<string, unknown>) || {};
-    return {
-      text: textResult.text || '',
-      metadata: {
-        author: info.Author,
-        title: info.Title,
-        numPages: infoResult.total,
-      },
-    };
+    return this.loadWithLoader(filePath, (path) => new PDFLoader(path));
   }
 
   @LogServiceCall()
   async processDocx(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
-    let tempPath = filePath;
-    let needsCleanup = false;
-
-    if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
-      const buffer = await this.getFileBuffer(filePath);
-      tempPath = path.join('/tmp', `docx_${Date.now()}.docx`);
-      fs.writeFileSync(tempPath, buffer);
-      needsCleanup = true;
-    }
-
-    const result = await mammoth.extractRawText({ path: tempPath });
-
-    if (needsCleanup) {
-      fs.unlinkSync(tempPath);
-    }
-
-    return {
-      text: result.value,
-      metadata: {},
-    };
+    return this.loadWithLoader(filePath, (path) => new DocxLoader(path));
   }
 
   @LogServiceCall()
@@ -122,12 +142,15 @@ export class FileProcessorService {
     text: string;
     metadata: Record<string, unknown>;
   }> {
+    if (filePath.toLowerCase().endsWith('.csv')) {
+      return this.loadWithLoader(filePath, (path) => new CSVLoader(path));
+    }
+
     let tempPath = filePath;
     let needsCleanup = false;
-
     if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
       const buffer = await this.getFileBuffer(filePath);
-      tempPath = path.join('/tmp', `spreadsheet_${Date.now()}${path.extname(filePath)}`);
+      tempPath = this.createTempFilePath(filePath);
       fs.writeFileSync(tempPath, buffer);
       needsCleanup = true;
     }
@@ -141,7 +164,7 @@ export class FileProcessorService {
       text += `\n--- Sheet: ${sheetName} ---\n${sheetText}\n`;
     });
 
-    if (needsCleanup) {
+    if (needsCleanup && fs.existsSync(tempPath)) {
       fs.unlinkSync(tempPath);
     }
 
@@ -154,14 +177,8 @@ export class FileProcessorService {
     };
   }
 
-  processPptx(): {
-    text: string;
-    metadata: Record<string, unknown>;
-  } {
-    return {
-      text: 'PPTX处理需要额外的库支持。使用占位文本。',
-      metadata: {},
-    };
+  async processPptx(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
+    return this.loadWithLoader(filePath, (buffer) => new PPTXLoader(buffer));
   }
 
   @LogServiceCall()
@@ -205,20 +222,14 @@ export class FileProcessorService {
 
   @LogServiceCall()
   async processUrl(url: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
-    const response = await fetch(url);
-    const html = await response.text();
-    const $ = cheerio.load(html);
-
-    $('script, style, nav, header, footer').remove();
-    const text = $.text().replace(/\s+/g, ' ').trim();
-
-    return {
-      text,
-      metadata: {
-        url: '***URL***',
-        title: $('title').text(),
-      },
-    };
+    const loader = new HTMLWebBaseLoader(url);
+    const docs = await loader.load();
+    const text = docs
+      .map((doc) => doc.pageContent || '')
+      .join('\n\n')
+      .trim();
+    const metadata = docs.length > 0 ? { pageCount: docs.length, source: url } : { source: url };
+    return { text, metadata };
   }
 
   @LogServiceCall()
@@ -229,7 +240,7 @@ export class FileProcessorService {
 
     if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
       imageBuffer = await this.getFileBuffer(filePath);
-      tempPath = path.join('/tmp', `image_${Date.now()}${path.extname(filePath)}`);
+      tempPath = this.createTempFilePath(filePath);
       fs.writeFileSync(tempPath, imageBuffer);
       needsCleanup = true;
     } else {
@@ -238,7 +249,6 @@ export class FileProcessorService {
 
     const image = sharp(tempPath);
     const metadata = await image.metadata();
-
     const imageBase64 = imageBuffer.toString('base64');
 
     const description = await this.aiService.getChatModel().invoke([
@@ -248,7 +258,7 @@ export class FileProcessorService {
       },
     ]);
 
-    if (needsCleanup) {
+    if (needsCleanup && fs.existsSync(tempPath)) {
       fs.unlinkSync(tempPath);
     }
 
@@ -293,56 +303,52 @@ export class FileProcessorService {
     };
   }
 
-  chunkText(text: string, chunkSize: number = 500, chunkOverlap: number = 50): string[] {
+  async splitText(text: string, chunkSize: number = 500, chunkOverlap: number = 50): Promise<string[]> {
     if (!text || text.length === 0) {
       return [];
     }
 
-    const chunks: string[] = [];
-    let start = 0;
-    const safeChunkSize = Math.max(1, chunkSize);
-    const safeOverlap = Math.max(0, Math.min(chunkOverlap, Math.floor(safeChunkSize / 2)));
+    const splitter = new RecursiveCharacterTextSplitter({
+      chunkSize,
+      chunkOverlap,
+      separators: ['\n\n', '\n', ' ', ''],
+    });
 
-    while (start < text.length) {
-      const end = Math.min(start + safeChunkSize, text.length);
-      let chunk = text.substring(start, end);
+    return this.normalizeTextChunks(await splitter.splitText(text));
+  }
 
-      if (end < text.length) {
-        const lastPeriod = chunk.lastIndexOf('.');
-        const lastNewline = chunk.lastIndexOf('\n');
-        const splitPoint = Math.max(lastPeriod, lastNewline);
-
-        if (splitPoint > start + safeOverlap) {
-          chunk = text.substring(start, splitPoint + 1);
-        }
-      }
-
-      const trimmedChunk = chunk.trim();
-      if (trimmedChunk.length > 0) {
-        chunks.push(trimmedChunk);
-      }
-
-      const nextStart = end - safeOverlap;
-      if (nextStart <= start) {
-        start = end;
-      } else {
-        start = nextStart;
-      }
-    }
-
-    return chunks;
+  async chunkText(text: string, chunkSize: number = 500, chunkOverlap: number = 50): Promise<string[]> {
+    return this.splitText(text, chunkSize, chunkOverlap);
   }
 
   @LogServiceCall()
-  async storeChunks(documentId: string, chunks: string[]): Promise<void> {
+  async storeChunks(
+    documentId: string,
+    chunks: string[],
+  ): Promise<
+    Array<{
+      content: string;
+      metadata: Record<string, unknown>;
+      embedding: string;
+      chunkIndex: number;
+      totalChunks: number;
+    }>
+  > {
     if (!chunks || chunks.length === 0) {
       this.logger.warn(`文档 ${documentId} 没有可存储的分块`);
-      return;
+      return [];
     }
 
     const batchSize = 10;
     const totalChunks = chunks.length;
     let processedCount = 0;
+    const enrichedChunks: Array<{
+      content: string;
+      metadata: Record<string, unknown>;
+      embedding: string;
+      chunkIndex: number;
+      totalChunks: number;
+    }> = [];
 
     this.logger.debug(`开始存储文档 ${documentId} 的 ${totalChunks} 个分块，每批处理 ${batchSize} 个`);
 
@@ -355,7 +361,6 @@ export class FileProcessorService {
       }
 
       const batchIndices = Array.from({ length: batchChunks.length }, (_, j) => i + j);
-
       const embeddings = await this.aiService.generateEmbeddings(batchChunks);
 
       const documents = batchChunks.map((content, j) => ({
@@ -369,10 +374,25 @@ export class FileProcessorService {
 
       await this.neo4jService.addDocuments(documents, embeddings);
 
+      enrichedChunks.push(
+        ...batchChunks.map((content, j) => ({
+          content,
+          metadata: {
+            documentId,
+            chunkIndex: batchIndices[j],
+            totalChunks,
+          },
+          embedding: JSON.stringify(embeddings[j]),
+          chunkIndex: batchIndices[j],
+          totalChunks,
+        })),
+      );
+
       processedCount += batchChunks.length;
       this.logger.debug(`文档 ${documentId} 分块存储进度: ${processedCount}/${totalChunks}`);
     }
 
     this.logger.info(`文档 ${documentId} 分块存储完成，共存储 ${processedCount} 个分块`);
+    return enrichedChunks;
   }
 }

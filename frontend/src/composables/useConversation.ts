@@ -70,7 +70,7 @@ export function useConversation() {
     });
 
     if (currentConversation.value?.id) {
-      params.set('conversationId', currentConversation.value.id);
+      params.set('conversationId', String(currentConversation.value.id));
     }
 
     const eventSource = new EventSource(`${baseURL}/api/conversations/chat?${params.toString()}`);
@@ -78,6 +78,10 @@ export function useConversation() {
 
     eventSource.onmessage = (event) => {
       try {
+        if (typeof event.data !== 'string') {
+          return;
+        }
+
         const data = JSON.parse(event.data) as SseMessage;
         if (data.type === 'message') {
           assistantMessage.content += data.content ?? '';

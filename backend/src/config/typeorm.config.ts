@@ -68,7 +68,8 @@ class TypeOrmLogger implements Logger {
       info: '\x1b[34m',
       warn: '\x1b[33m',
     };
-    console.log(`${colors[level]}[TypeORM]\x1b[0m ${message}`);
+    const messageStr = typeof message === 'string' ? message : String(message);
+    console.log(`${colors[level]}[TypeORM]\x1b[0m ${messageStr}`);
   }
 }
 

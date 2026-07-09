@@ -44,12 +44,24 @@ export class DocumentController {
   @Post()
   @UseInterceptors(FileInterceptor('file'))
   async uploadFile(@UploadedFile() file: Express.Multer.File, @Body() body: { url?: string }) {
-    this.logger.debug(
-      `请求进入 - 上传文件，文件名: ${file?.originalname || '无'}, URL: ${body.url ? '***URL***' : '无'}`,
-    );
+    let originalName = file.originalname;
+    try {
+      const decoded = Buffer.from(originalName, 'latin1').toString('utf8');
+      if (Array.from(decoded).some((char) => (char.codePointAt(0) ?? 0) > 0x7f)) {
+        originalName = decoded;
+      }
+    } catch (e) {
+      // ignore and fall back to originalName
+      this.logger.warn(
+        `文件名解码失败 - 原始文件名: ${file.originalname}, 错误: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+    this.logger.debug(`请求进入 - 上传文件，文件名: ${originalName || '无'}, URL: ${body.url ? '***URL***' : '无'}`);
 
     let document: Document;
     let rustfsUrl: string | undefined;
+    let normalizedFileName = '';
+    let fileType = FileType.TXT;
 
     if (body.url) {
       document = await this.documentService.create({
@@ -59,18 +71,26 @@ export class DocumentController {
         status: DocumentStatus.PROCESSING,
       });
     } else if (file) {
-      const ext = file.originalname.toLowerCase().substring(file.originalname.lastIndexOf('.'));
-      const fileType = FILE_TYPE_MAP[ext] || FileType.TXT;
+      // Some browsers / multipart parsers provide the filename using latin1 encoding,
+      // which results in garbled non-ASCII names (e.g. Chinese). Try re-decoding
+      // from latin1 -> utf8 and use the decoded value when it looks valid.
+
+      const ext = originalName.toLowerCase().substring(originalName.lastIndexOf('.'));
+      fileType = FILE_TYPE_MAP[ext] || FileType.TXT;
+      normalizedFileName = originalName.normalize('NFC');
 
       document = await this.documentService.create({
-        name: file.originalname,
+        name: normalizedFileName,
         type: fileType,
         path: '',
         status: DocumentStatus.PROCESSING,
         fileSize: file.size,
       });
+      this.logger.info(
+        `文档创建成功 - 文档ID: ${document.id}, 文件名: ${normalizedFileName}, 文件类型: ${fileType}, 文件大小: ${file.size}字节`,
+      );
 
-      const rustfsKey = `${document.id}/${file.originalname}`;
+      const rustfsKey = `${document.id}/${encodeURIComponent(normalizedFileName)}`;
       rustfsUrl = await this.rustfsService.uploadFile(rustfsKey, file.buffer, file.mimetype);
 
       await this.documentService.update(document.id, {
@@ -82,7 +102,7 @@ export class DocumentController {
 
     try {
       const filePath = body.url ? body.url : rustfsUrl || file.path;
-      const fileName = body.url ? body.url : file.originalname;
+      const fileName = body.url ? body.url : normalizedFileName;
 
       const { text, metadata } = await this.fileProcessorService.processFile(filePath, fileName, document.type);
 
@@ -91,12 +111,12 @@ export class DocumentController {
         metadata,
       });
 
-      const chunks = this.fileProcessorService.chunkText(text);
-      await this.fileProcessorService.storeChunks(document.id, chunks);
-      await this.chunkService.createForDocument(document.id, chunks);
+      const chunks = await this.fileProcessorService.splitText(text);
+      const enrichedChunks = await this.fileProcessorService.storeChunks(document.id, chunks);
+      await this.chunkService.createForDocument(document.id, enrichedChunks);
 
       await this.documentService.update(document.id, {
-        chunkCount: chunks.length,
+        chunkCount: enrichedChunks.length,
       });
 
       this.logger.info(`请求成功 - 文件上传完成，文档ID: ${document.id}, 分块数: ${chunks.length}`);

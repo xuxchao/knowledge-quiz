@@ -5,9 +5,12 @@
   "private": true,
   "scripts": {
     "prepare": "husky install",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
     "db:reset": "node scripts/reset-databases.js",
     "db:reset:yes": "node scripts/reset-databases.js --yes",
-    "db:reset:check": "node scripts/reset-databases.js --check"
+    "db:reset:check": "node scripts/reset-databases.js --check",
+    "lint": "pnpm --parallel --filter backend --filter frontend lint"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.0.0",

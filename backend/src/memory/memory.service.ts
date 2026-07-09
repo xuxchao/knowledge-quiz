@@ -61,7 +61,7 @@ export class MemoryService {
   }
 
   @LogServiceCall()
-  saveLongTermMemory(userId: string, content: string, metadata?: Record<string, unknown>): void {
+  saveLongTermMemory(userId: string, content: string, metadata?: Record<string, unknown>) {
     const item: MemoryItem = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       content,
@@ -80,14 +80,19 @@ export class MemoryService {
   }
 
   @LogServiceCall()
-  getLongTermMemory(userId: string): MemoryItem[] {
+  getLongTermMemory(userId: string) {
     return this.longTermMemoryStore.get(userId) || [];
   }
 
   @LogServiceCall()
   async getRelevantMemories(query: string, conversationId: string, userId: string = 'default'): Promise<MemoryItem[]> {
     const shortTerm = await this.getShortTermMemory(conversationId);
-    const longTerm = this.getLongTermMemory(userId);
+    let longTerm = this.getLongTermMemory(userId);
+
+    if (!Array.isArray(longTerm)) {
+      this.logger.warn(`长时记忆格式异常（非数组） - userId: ${userId}`, longTerm);
+      longTerm = [];
+    }
 
     const allMemories = [...shortTerm, ...longTerm];
 
@@ -101,7 +106,7 @@ export class MemoryService {
   }
 
   @LogServiceCall()
-  clearLongTermMemory(userId: string): void {
+  clearLongTermMemory(userId: string) {
     this.longTermMemoryStore.delete(userId);
   }
 }

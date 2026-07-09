@@ -85,43 +85,53 @@ describe('MemoryService', () => {
   });
 
   describe('saveLongTermMemory', () => {
-    it('should save memory successfully', () => {
-      service.saveLongTermMemory('user-1', 'test content');
-      const result = service.getLongTermMemory('user-1');
+    it('should save memory successfully', async () => {
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await service.saveLongTermMemory('user-1', 'test content');
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      const result = await service.getLongTermMemory('user-1');
       expect(result).toHaveLength(1);
       expect(result[0].content).toBe('test content');
     });
 
-    it('should handle empty content', () => {
-      service.saveLongTermMemory('user-1', '');
-      const result = service.getLongTermMemory('user-1');
+    it('should handle empty content', async () => {
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await service.saveLongTermMemory('user-1', '');
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      const result = await service.getLongTermMemory('user-1');
       expect(result).toHaveLength(1);
       expect(result[0].content).toBe('');
     });
 
-    it('should handle empty user id', () => {
-      service.saveLongTermMemory('', 'test content');
-      const result = service.getLongTermMemory('');
+    it('should handle empty user id', async () => {
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await service.saveLongTermMemory('', 'test content');
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      const result = await service.getLongTermMemory('');
       expect(result).toHaveLength(1);
     });
   });
 
   describe('getLongTermMemory', () => {
-    it('should return empty array if no memory', () => {
-      const result = service.getLongTermMemory('non-existent');
+    it('should return empty array if no memory', async () => {
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      const result = await service.getLongTermMemory('non-existent');
       expect(result).toEqual([]);
     });
 
-    it('should return memories if they exist', () => {
-      service.saveLongTermMemory('user-1', 'test content');
-      const result = service.getLongTermMemory('user-1');
+    it('should return memories if they exist', async () => {
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await service.saveLongTermMemory('user-1', 'test content');
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      const result = await service.getLongTermMemory('user-1');
       expect(Array.isArray(result)).toBe(true);
       expect(result.length).toBe(1);
       expect(result[0].content).toBe('test content');
     });
 
-    it('should handle empty user id', () => {
-      const result = service.getLongTermMemory('');
+    it('should handle empty user id', async () => {
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      const result = await service.getLongTermMemory('');
       expect(result).toEqual([]);
     });
   });
@@ -129,18 +139,21 @@ describe('MemoryService', () => {
   describe('getRelevantMemories', () => {
     it('should return relevant memories', async () => {
       jest.spyOn(redisService, 'get').mockResolvedValue(null);
+
       const result = await service.getRelevantMemories('test', 'conv-1', 'user-1');
       expect(Array.isArray(result)).toBe(true);
     });
 
     it('should handle empty query', async () => {
       jest.spyOn(redisService, 'get').mockResolvedValue(null);
+
       const result = await service.getRelevantMemories('', 'conv-1', 'user-1');
       expect(Array.isArray(result)).toBe(true);
     });
 
     it('should handle empty conversation id', async () => {
       jest.spyOn(redisService, 'get').mockResolvedValue(null);
+
       const result = await service.getRelevantMemories('test', '', 'user-1');
       expect(Array.isArray(result)).toBe(true);
     });
@@ -161,20 +174,27 @@ describe('MemoryService', () => {
   });
 
   describe('clearLongTermMemory', () => {
-    it('should clear memory successfully', () => {
-      service.saveLongTermMemory('user-1', 'test content');
-      const beforeResult = service.getLongTermMemory('user-1');
+    it('should clear memory successfully', async () => {
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await service.saveLongTermMemory('user-1', 'test content');
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      const beforeResult = await service.getLongTermMemory('user-1');
       expect(beforeResult.length).toBe(1);
 
-      service.clearLongTermMemory('user-1');
-      const afterResult = service.getLongTermMemory('user-1');
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await service.clearLongTermMemory('user-1');
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      const afterResult = await service.getLongTermMemory('user-1');
       expect(afterResult).toEqual([]);
     });
 
-    it('should handle empty user id', () => {
-      service.saveLongTermMemory('', 'test content');
-      service.clearLongTermMemory('');
-      const result = service.getLongTermMemory('');
+    it('should handle empty user id', async () => {
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await service.saveLongTermMemory('', 'test content');
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      await service.clearLongTermMemory('');
+      // eslint-disable-next-line @typescript-eslint/await-thenable
+      const result = await service.getLongTermMemory('');
       expect(result).toEqual([]);
     });
   });

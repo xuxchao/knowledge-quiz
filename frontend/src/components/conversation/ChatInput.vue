@@ -2,6 +2,48 @@
 import { ref } from 'vue';
 import { Mic, Send } from 'lucide-vue-next';
 
+interface SpeechRecognitionEvent extends Event {
+  results: SpeechRecognitionResultList;
+}
+
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string;
+}
+
+interface SpeechRecognitionResult {
+  readonly 0: SpeechRecognitionAlternative;
+  readonly isFinal: boolean;
+}
+
+interface SpeechRecognitionAlternative {
+  readonly transcript: string;
+  readonly confidence: number;
+}
+
+interface SpeechRecognitionResultList {
+  readonly length: number;
+  item(index: number): SpeechRecognitionResult;
+  readonly 0: SpeechRecognitionResult;
+}
+
+interface SpeechRecognitionInterface {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((this: SpeechRecognitionInterface, ev: SpeechRecognitionEvent) => void) | null;
+  onerror: ((this: SpeechRecognitionInterface, ev: SpeechRecognitionErrorEvent) => void) | null;
+  onend: (() => void) | null;
+  start(): void;
+  abort(): void;
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => SpeechRecognitionInterface;
+    webkitSpeechRecognition?: new () => SpeechRecognitionInterface;
+  }
+}
+
 defineProps<{
   disabled: boolean;
 }>();
@@ -32,13 +74,17 @@ const startRecording = (): void => {
     return;
   }
   isRecording.value = true;
-  const SpeechRecognition =
-    (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-  const recognition = new SpeechRecognition();
+  const SpeechRecognitionCtor = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognitionCtor) {
+    alert('您的浏览器不支持语音识别功能');
+    isRecording.value = false;
+    return;
+  }
+  const recognition = new SpeechRecognitionCtor();
   recognition.lang = 'zh-CN';
   recognition.continuous = false;
   recognition.interimResults = false;
-  recognition.onresult = (event: any) => {
+  recognition.onresult = (event: SpeechRecognitionEvent) => {
     const transcript = event.results[0][0].transcript;
     inputMessage.value = transcript;
   };

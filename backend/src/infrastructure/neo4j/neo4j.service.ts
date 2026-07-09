@@ -184,7 +184,8 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   }
 
   private extractMetadata(properties: Record<string, unknown>): Record<string, unknown> {
-    const { content: _content, embedding: _embedding, ...metadata } = properties;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { content, embedding, ...metadata } = properties;
     return metadata;
   }
 }

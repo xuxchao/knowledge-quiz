@@ -32,6 +32,7 @@ describe('DocumentController', () => {
   const mockFileProcessorService = {
     processFile: jest.fn(),
     chunkText: jest.fn(),
+    splitText: jest.fn(),
     storeChunks: jest.fn(),
   };
 
@@ -46,7 +47,23 @@ describe('DocumentController', () => {
       metadata: { numPages: 1, author: 'Test' },
     });
     mockFileProcessorService.chunkText.mockReturnValue(['chunk1', 'chunk2']);
-    mockFileProcessorService.storeChunks.mockResolvedValue();
+    mockFileProcessorService.splitText.mockResolvedValue(['chunk1', 'chunk2']);
+    mockFileProcessorService.storeChunks.mockResolvedValue([
+      {
+        content: 'chunk1',
+        metadata: { documentId: 'test-uuid', chunkIndex: 0, totalChunks: 2 },
+        embedding: JSON.stringify([0.1, 0.2]),
+        chunkIndex: 0,
+        totalChunks: 2,
+      },
+      {
+        content: 'chunk2',
+        metadata: { documentId: 'test-uuid', chunkIndex: 1, totalChunks: 2 },
+        embedding: JSON.stringify([0.3, 0.4]),
+        chunkIndex: 1,
+        totalChunks: 2,
+      },
+    ]);
     mockChunkService.createForDocument.mockResolvedValue([]);
   });
 
@@ -273,9 +290,47 @@ describe('DocumentController', () => {
       expect(documentService.create).toHaveBeenCalled();
       expect(rustfsService.uploadFile).toHaveBeenCalledWith('test-uuid/test.pdf', mockFile.buffer, mockFile.mimetype);
       expect(fileProcessorService.processFile).toHaveBeenCalled();
-      expect(fileProcessorService.chunkText).toHaveBeenCalledWith('test content');
+      expect(fileProcessorService.splitText).toHaveBeenCalledWith('test content');
       expect(fileProcessorService.storeChunks).toHaveBeenCalledWith('test-uuid', ['chunk1', 'chunk2']);
-      expect(chunkService.createForDocument).toHaveBeenCalledWith('test-uuid', ['chunk1', 'chunk2']);
+      expect(chunkService.createForDocument).toHaveBeenCalledWith('test-uuid', [
+        expect.objectContaining({ content: 'chunk1', chunkIndex: 0, totalChunks: 2 }),
+        expect.objectContaining({ content: 'chunk2', chunkIndex: 1, totalChunks: 2 }),
+      ]);
+    });
+
+    it('should preserve Chinese file names when uploading', async () => {
+      const mockFile = {
+        originalname: '测试文档.md',
+        buffer: Buffer.from('测试内容'),
+        mimetype: 'text/markdown',
+        size: 200,
+      } as Express.Multer.File;
+
+      const mockCreateResult = {
+        id: 'test-uuid',
+        name: '测试文档.md',
+        type: FileType.MD,
+        status: DocumentStatus.PROCESSING,
+        fileSize: 200,
+      } as Document;
+
+      jest.spyOn(documentService, 'create').mockResolvedValue(mockCreateResult);
+      jest.spyOn(documentService, 'update').mockResolvedValue(mockCreateResult);
+      jest.spyOn(documentService, 'findById').mockResolvedValue({
+        ...mockCreateResult,
+        status: DocumentStatus.PROCESSED,
+        chunkCount: 2,
+        chunks: [],
+      });
+
+      await controller.uploadFile(mockFile, {});
+
+      expect(documentService.create).toHaveBeenCalledWith(expect.objectContaining({ name: '测试文档.md' }));
+      expect(rustfsService.uploadFile).toHaveBeenCalledWith(
+        'test-uuid/%E6%B5%8B%E8%AF%95%E6%96%87%E6%A1%A3.md',
+        mockFile.buffer,
+        mockFile.mimetype,
+      );
     });
 
     it('should throw error if no file or URL provided', async () => {
@@ -391,7 +446,8 @@ describe('DocumentController', () => {
         text: '',
         metadata: {},
       });
-      jest.spyOn(fileProcessorService, 'chunkText').mockReturnValue([]);
+      jest.spyOn(fileProcessorService, 'splitText').mockResolvedValue([]);
+      jest.spyOn(fileProcessorService, 'storeChunks').mockResolvedValue([]);
       jest.spyOn(documentService, 'update').mockResolvedValue({
         id: 'test-uuid',
         name: 'empty.pdf',

@@ -65,6 +65,7 @@ export class RustfsService {
 
   @LogServiceCall()
   async uploadFile(key: string, file: Buffer | Readable, contentType?: string): Promise<string> {
+    this.logger.debug(`上传文件: key=${key}, contentType=${contentType || '未指定'}`);
     try {
       const command = new PutObjectCommand({
         Bucket: this.bucket,
@@ -85,6 +86,7 @@ export class RustfsService {
 
   @LogServiceCall()
   async downloadFile(key: string): Promise<Buffer> {
+    this.logger.debug(`下载文件: key=${key}`);
     try {
       const command = new GetObjectCommand({
         Bucket: this.bucket,

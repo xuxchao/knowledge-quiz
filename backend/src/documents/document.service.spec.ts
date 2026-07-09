@@ -81,7 +81,7 @@ describe('DocumentService', () => {
   });
 
   describe('findById', () => {
-    it('should return document with chunks', async () => {
+    it('should return document without chunks by default', async () => {
       const mockDocument = {
         id: 'test-id',
         name: 'Test',
@@ -91,6 +91,24 @@ describe('DocumentService', () => {
       documentRepository.findOne.mockResolvedValue(mockDocument);
 
       const result = await service.findById('test-id');
+
+      expect(result).toEqual(mockDocument);
+      expect(documentRepository.findOne).toHaveBeenCalledWith({
+        where: { id: 'test-id' },
+        relations: {},
+      });
+    });
+
+    it('should return document with chunks when requested', async () => {
+      const mockDocument = {
+        id: 'test-id',
+        name: 'Test',
+        chunks: [{ id: 'chunk-1', content: 'Hello' }],
+      };
+
+      documentRepository.findOne.mockResolvedValue(mockDocument);
+
+      const result = await service.findByIdWithChunks('test-id');
 
       expect(result).toEqual(mockDocument);
       expect(result.chunks).toHaveLength(1);

@@ -66,9 +66,16 @@ ${memoryContext}
 
     let fullResponse = '';
 
+    this.logger.info(
+      `开始对话 - 会话ID: ${conversationId}, 用户ID: ${uid}, 用户消息: ${message}, 系统提示词: ${systemPrompt}`,
+    );
+
     return from(this.aiService.streamChain(message, systemPrompt)).pipe(
       map((chunk) => {
         fullResponse += chunk;
+        // this.logger.debug(
+        //   `接收到AI响应片段 - 会话ID: ${conversationId}, 片段: ${chunk.substring(0, 50)}${chunk.length > 50 ? '...' : ''}`,
+        // );
         return {
           data: JSON.stringify({
             type: 'message' as const,

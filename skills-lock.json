@@ -36,6 +36,12 @@
       "sourceType": "local",
       "skillPath": "SKILL.md",
       "computedHash": ""
+    },
+    "project-permission-guard": {
+      "source": ".agents/skills/project-permission-guard",
+      "sourceType": "local",
+      "skillPath": "SKILL.md",
+      "computedHash": ""
     }
   }
 }

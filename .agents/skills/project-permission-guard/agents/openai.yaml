@@ -1,0 +1,4 @@
+interface:
+  display_name: "Project Permission Guard"
+  short_description: "Avoid recurring sandbox and approval command failures"
+  default_prompt: "Use $project-permission-guard before running validation, Docker, package-manager, or Codex-session scanning commands in this project."

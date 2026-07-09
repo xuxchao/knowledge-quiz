@@ -76,8 +76,7 @@ export class RustfsService {
 
       await this.s3Client.send(command);
 
-      const url = `${this.configService.get<string>('RUSTFS_ENDPOINT')}/${this.bucket}/${key}`;
-      return url;
+      return this.getFileUrl(key);
     } catch (error) {
       const err = error as Error;
       throw new Error(`文件上传失败: ${err.message}`);
@@ -88,21 +87,19 @@ export class RustfsService {
   async downloadFile(key: string): Promise<Buffer> {
     this.logger.debug(`下载文件: key=${key}`);
     try {
-      const command = new GetObjectCommand({
-        Bucket: this.bucket,
-        Key: key,
-      });
-
-      const response = await this.s3Client.send(command);
-      const stream = response.Body as Readable;
-
-      return new Promise<Buffer>((resolve, reject) => {
-        const chunks: Buffer[] = [];
-        stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-        stream.on('end', () => resolve(Buffer.concat(chunks)));
-        stream.on('error', reject);
-      });
+      return await this.downloadObject(key);
     } catch (error) {
+      const legacyEncodedKey = this.encodeKeyForUrl(key);
+      if (this.isObjectNotFoundError(error) && legacyEncodedKey !== key) {
+        this.logger.warn(`文件下载未找到原始key，尝试兼容旧编码key: ${legacyEncodedKey}`);
+        try {
+          return await this.downloadObject(legacyEncodedKey);
+        } catch (legacyError) {
+          const err = legacyError as Error;
+          throw new Error(`文件下载失败: ${err.message}`);
+        }
+      }
+
       const err = error as Error;
       throw new Error(`文件下载失败: ${err.message}`);
     }
@@ -143,10 +140,48 @@ export class RustfsService {
   }
 
   getFileUrl(key: string): string {
-    return `${this.configService.get<string>('RUSTFS_ENDPOINT')}/${this.bucket}/${key}`;
+    return `${this.configService.get<string>('RUSTFS_ENDPOINT')}/${this.bucket}/${this.encodeKeyForUrl(key)}`;
   }
 
   getBucket(): string {
     return this.bucket;
+  }
+
+  private async downloadObject(key: string): Promise<Buffer> {
+    const command = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+    });
+
+    const response = await this.s3Client.send(command);
+    const stream = response.Body as Readable;
+
+    return new Promise<Buffer>((resolve, reject) => {
+      const chunks: Buffer[] = [];
+      stream.on('data', (chunk: Buffer) => chunks.push(chunk));
+      stream.on('end', () => resolve(Buffer.concat(chunks)));
+      stream.on('error', reject);
+    });
+  }
+
+  private encodeKeyForUrl(key: string): string {
+    return key.split('/').map(encodeURIComponent).join('/');
+  }
+
+  private isObjectNotFoundError(error: unknown): boolean {
+    const err = error as {
+      name?: string;
+      Code?: string;
+      message?: string;
+      $metadata?: { httpStatusCode?: number };
+    };
+
+    return (
+      err.name === 'NoSuchKey' ||
+      err.name === 'NotFound' ||
+      err.Code === 'NoSuchKey' ||
+      err.$metadata?.httpStatusCode === 404 ||
+      err.message?.includes('specified key does not exist') === true
+    );
   }
 }

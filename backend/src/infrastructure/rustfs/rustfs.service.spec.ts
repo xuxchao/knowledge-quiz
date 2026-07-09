@@ -77,6 +77,12 @@ describe('RustfsService', () => {
 
       expect(url).toBe('http://localhost:9004/documents/folder/subfolder/file.txt');
     });
+
+    it('should encode non-ASCII path segments in generated URLs', () => {
+      const url = service.getFileUrl('test-doc/测试文档.md');
+
+      expect(url).toBe('http://localhost:9004/documents/test-doc/%E6%B5%8B%E8%AF%95%E6%96%87%E6%A1%A3.md');
+    });
   });
 
   describe('uploadFile', () => {
@@ -91,6 +97,26 @@ describe('RustfsService', () => {
 
       expect(result).toBe('http://localhost:9004/documents/test-doc/test.pdf');
       expect(mockSend).toHaveBeenCalledWith(expect.any(PutObjectCommand));
+    });
+
+    it('should store Chinese file names as raw object keys and return encoded URLs', async () => {
+      const mockSend = jest.fn().mockResolvedValue({});
+      (S3Client as jest.Mock).mockImplementation(() => ({ send: mockSend }));
+
+      const service = new RustfsService(configService);
+      const fileBuffer = Buffer.from('test content');
+
+      const result = await service.uploadFile('test-doc/测试文档.md', fileBuffer, 'text/markdown');
+
+      expect(result).toBe('http://localhost:9004/documents/test-doc/%E6%B5%8B%E8%AF%95%E6%96%87%E6%A1%A3.md');
+      expect(PutObjectCommand).toHaveBeenCalledWith(
+        expect.objectContaining({
+          Bucket: 'documents',
+          Key: 'test-doc/测试文档.md',
+          Body: fileBuffer,
+          ContentType: 'text/markdown',
+        }),
+      );
     });
 
     it('should throw error if upload fails', async () => {
@@ -140,6 +166,38 @@ describe('RustfsService', () => {
       const service = new RustfsService(configService);
 
       await expect(service.downloadFile('test-doc/test.pdf')).rejects.toThrow(/Download failed/);
+    });
+
+    it('should fall back to legacy encoded object keys when raw key is missing', async () => {
+      const mockStream = new Readable();
+      mockStream.push(Buffer.from('test content'));
+      mockStream.push(null);
+      const mockSend = jest.fn().mockResolvedValue({ Buckets: [{ Name: 'documents' }] });
+      (S3Client as jest.Mock).mockImplementation(() => ({ send: mockSend }));
+
+      const service = new RustfsService(configService);
+      const notFoundError = new Error('The specified key does not exist.');
+      notFoundError.name = 'NoSuchKey';
+
+      await Promise.resolve();
+      mockSend.mockReset();
+      (GetObjectCommand as unknown as jest.Mock).mockClear();
+      mockSend.mockRejectedValueOnce(notFoundError).mockResolvedValueOnce({ Body: mockStream });
+
+      const result = await service.downloadFile('test-doc/测试文档.md');
+
+      expect(result.toString()).toBe('test content');
+      expect(GetObjectCommand).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({ Bucket: 'documents', Key: 'test-doc/测试文档.md' }),
+      );
+      expect(GetObjectCommand).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          Bucket: 'documents',
+          Key: 'test-doc/%E6%B5%8B%E8%AF%95%E6%96%87%E6%A1%A3.md',
+        }),
+      );
     });
   });
 

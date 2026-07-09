@@ -327,7 +327,42 @@ describe('DocumentController', () => {
 
       expect(documentService.create).toHaveBeenCalledWith(expect.objectContaining({ name: '测试文档.md' }));
       expect(rustfsService.uploadFile).toHaveBeenCalledWith(
-        'test-uuid/%E6%B5%8B%E8%AF%95%E6%96%87%E6%A1%A3.md',
+        'test-uuid/测试文档.md',
+        mockFile.buffer,
+        mockFile.mimetype,
+      );
+    });
+
+    it('should decode garbled latin1 Chinese file names before upload', async () => {
+      const mockFile = {
+        originalname: Buffer.from('测试文档.md', 'utf8').toString('latin1'),
+        buffer: Buffer.from('测试内容'),
+        mimetype: 'text/markdown',
+        size: 200,
+      } as Express.Multer.File;
+
+      const mockCreateResult = {
+        id: 'test-uuid',
+        name: '测试文档.md',
+        type: FileType.MD,
+        status: DocumentStatus.PROCESSING,
+        fileSize: 200,
+      } as Document;
+
+      jest.spyOn(documentService, 'create').mockResolvedValue(mockCreateResult);
+      jest.spyOn(documentService, 'update').mockResolvedValue(mockCreateResult);
+      jest.spyOn(documentService, 'findById').mockResolvedValue({
+        ...mockCreateResult,
+        status: DocumentStatus.PROCESSED,
+        chunkCount: 2,
+        chunks: [],
+      });
+
+      await controller.uploadFile(mockFile, {});
+
+      expect(documentService.create).toHaveBeenCalledWith(expect.objectContaining({ name: '测试文档.md' }));
+      expect(rustfsService.uploadFile).toHaveBeenCalledWith(
+        'test-uuid/测试文档.md',
         mockFile.buffer,
         mockFile.mimetype,
       );

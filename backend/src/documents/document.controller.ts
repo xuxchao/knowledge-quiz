@@ -44,16 +44,13 @@ export class DocumentController {
   @Post()
   @UseInterceptors(FileInterceptor('file'))
   async uploadFile(@UploadedFile() file: Express.Multer.File, @Body() body: { url?: string }) {
-    let originalName = file.originalname;
+    let originalName = file?.originalname || '';
     try {
-      const decoded = Buffer.from(originalName, 'latin1').toString('utf8');
-      if (Array.from(decoded).some((char) => (char.codePointAt(0) ?? 0) > 0x7f)) {
-        originalName = decoded;
-      }
+      originalName = this.decodeOriginalFileName(originalName);
     } catch (e) {
       // ignore and fall back to originalName
       this.logger.warn(
-        `文件名解码失败 - 原始文件名: ${file.originalname}, 错误: ${e instanceof Error ? e.message : String(e)}`,
+        `文件名解码失败 - 原始文件名: ${file?.originalname || ''}, 错误: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
     this.logger.debug(`请求进入 - 上传文件，文件名: ${originalName || '无'}, URL: ${body.url ? '***URL***' : '无'}`);
@@ -90,7 +87,7 @@ export class DocumentController {
         `文档创建成功 - 文档ID: ${document.id}, 文件名: ${normalizedFileName}, 文件类型: ${fileType}, 文件大小: ${file.size}字节`,
       );
 
-      const rustfsKey = `${document.id}/${encodeURIComponent(normalizedFileName)}`;
+      const rustfsKey = `${document.id}/${normalizedFileName}`;
       rustfsUrl = await this.rustfsService.uploadFile(rustfsKey, file.buffer, file.mimetype);
 
       await this.documentService.update(document.id, {
@@ -201,5 +198,18 @@ export class DocumentController {
       success: true,
       message: 'Document deleted successfully',
     };
+  }
+
+  private decodeOriginalFileName(originalName: string): string {
+    if (!/[\u0080-\u00ff]/.test(originalName)) {
+      return originalName;
+    }
+
+    const decoded = Buffer.from(originalName, 'latin1').toString('utf8');
+    if (decoded.includes('\uFFFD')) {
+      return originalName;
+    }
+
+    return decoded;
   }
 }

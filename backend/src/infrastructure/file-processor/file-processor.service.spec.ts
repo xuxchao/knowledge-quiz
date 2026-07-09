@@ -84,6 +84,16 @@ describe('FileProcessorService', () => {
     expect(service).toBeDefined();
   });
 
+  describe('getFileBuffer', () => {
+    it('should decode RustFS URLs to raw object keys before downloading', async () => {
+      await service.getFileBuffer(
+        'http://localhost:9004/documents/test-doc/%E6%B5%8B%E8%AF%95%E6%96%87%E6%A1%A3.md',
+      );
+
+      expect(rustfsService.downloadFile).toHaveBeenCalledWith('test-doc/测试文档.md');
+    });
+  });
+
   describe('chunkText', () => {
     it('should split text into chunks', async () => {
       const text = 'Hello world. This is a test. Another sentence here.';

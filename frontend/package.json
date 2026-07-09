@@ -13,10 +13,12 @@
     "lint:check": "eslint \"src/**/*.{js,jsx,ts,tsx,vue}\""
   },
   "dependencies": {
+    "@ai-sdk/vue": "^4.0.17",
     "@unocss/preset-uno": "^66.7.4",
     "@unocss/reset": "^66.7.4",
     "@unocss/vite": "^66.7.4",
     "@vueuse/core": "^14.3.0",
+    "ai": "^7.0.17",
     "axios": "^1.18.1",
     "lucide-vue-next": "^1.0.0",
     "markdown-it": "^14.3.0",

@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
+import type { AIMessageChunk } from '@langchain/core/messages';
 import { LoggerService, LogServiceCall } from '../common/logger';
 
 @Injectable()
@@ -63,17 +64,10 @@ export class AiService implements OnModuleInit {
   }
 
   @LogServiceCall()
-  async *streamChain(query: string, systemPrompt: string): AsyncGenerator<string> {
-    const stream = await this.chatModel.stream([
+  async streamChain(query: string, systemPrompt: string): Promise<AsyncIterable<AIMessageChunk>> {
+    return this.chatModel.stream([
       { role: 'system', content: systemPrompt },
       { role: 'user', content: query },
     ]);
-    for await (const chunk of stream) {
-      this.logger.debug(
-        `接收到AI响应片段 - 片段: ${chunk.text.substring(0, 50)}${chunk.text.length > 50 ? '...' : ''}`,
-      );
-      // const content = typeof chunk.content === 'string' ? chunk.content : JSON.stringify(chunk.content || '');
-      yield chunk.text;
-    }
   }
 }

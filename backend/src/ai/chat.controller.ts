@@ -6,6 +6,7 @@ import { ConversationService } from '../conversations/conversation.service';
 import { AiService } from './ai.service';
 import { MemoryService } from '../memory/memory.service';
 import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
+import { LangfuseService } from '../infrastructure/langfuse/langfuse.service';
 import { MessageRole } from '../entities/message.entity';
 import { LoggerService } from '../common/logger';
 
@@ -24,6 +25,7 @@ export class ChatController {
     private aiService: AiService,
     private memoryService: MemoryService,
     private neo4jService: Neo4jService,
+    private langfuseService: LangfuseService,
   ) {}
 
   @Post('chat')
@@ -44,11 +46,13 @@ export class ChatController {
     }
 
     if (!conversationId) {
+      const title = await this.aiService.generateConversationTitle(message);
       const conversation = await this.conversationService.create({
         userId: uid,
+        title,
       });
       conversationId = conversation.id;
-      this.logger.info(`新建会话 - ID: ${conversationId}`);
+      this.logger.info(`新建会话 - ID: ${conversationId}, 标题: ${title}`);
     }
 
     await this.conversationService.createMessage(conversationId, MessageRole.USER, message);
@@ -74,6 +78,13 @@ ${memoryContext}
     this.logger.info(`开始对话 - 会话ID: ${conversationId}, 用户ID: ${uid}, 用户消息长度: ${message.length}`);
 
     const langChainStream = await this.aiService.streamChain(message, systemPrompt);
+    const langfuseTrace = this.langfuseService.startChatTrace({
+      conversationId,
+      userId: uid,
+      message,
+      systemPrompt,
+    });
+    const langfuseGeneration = this.langfuseService.startGeneration(langfuseTrace, 'qwen-plus', message);
     const aiSdkStream = createUIMessageStream({
       execute: ({ writer }) => {
         writer.write({
@@ -85,9 +96,13 @@ ${memoryContext}
           toUIMessageStream(langChainStream, {
             onFinal: async (fullResponse) => {
               await this.saveAssistantResponse(conversationId, uid, fullResponse);
+              this.langfuseService.completeGeneration(langfuseTrace, langfuseGeneration, fullResponse);
+              await this.langfuseService.flush();
             },
             onError: async (error) => {
               this.logger.error(`对话流处理失败 - 会话ID: ${conversationId}，错误: ${error.message}`, error.stack);
+              this.langfuseService.failGeneration(langfuseGeneration, error.message, langfuseTrace);
+              await this.langfuseService.flush();
             },
           }),
         );
@@ -95,6 +110,7 @@ ${memoryContext}
       onError: (error: unknown) => {
         const errorMessage = error instanceof Error ? error.message : String(error);
         this.logger.error(`对话响应生成失败 - 会话ID: ${conversationId}，错误: ${errorMessage}`);
+        this.langfuseService.failGeneration(langfuseGeneration, errorMessage, langfuseTrace);
         return '对话响应生成失败';
       },
     });

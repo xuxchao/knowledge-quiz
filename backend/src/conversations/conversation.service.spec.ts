@@ -20,8 +20,10 @@ describe('ConversationService', () => {
             save: jest.fn().mockResolvedValue({ id: 'test-id', name: 'test' }),
             findOne: jest.fn().mockResolvedValue({ id: 'test-id', messages: [] }),
             createQueryBuilder: jest.fn().mockReturnValue({
+              leftJoinAndSelect: jest.fn().mockReturnThis(),
               where: jest.fn().mockReturnThis(),
               orderBy: jest.fn().mockReturnThis(),
+              addOrderBy: jest.fn().mockReturnThis(),
               getMany: jest.fn().mockResolvedValue([]),
             }),
             update: jest.fn().mockResolvedValue({ affected: 1 }),
@@ -126,8 +128,10 @@ describe('ConversationService', () => {
       ];
 
       conversationRepository.createQueryBuilder.mockReturnValue({
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
         getMany: jest.fn().mockResolvedValue(mockConversations),
       });
 
@@ -137,12 +141,42 @@ describe('ConversationService', () => {
       expect(result).toHaveLength(2);
     });
 
+    it('should include messages ordered by createdAt in conversation list', async () => {
+      const queryBuilder = {
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
+        where: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue([
+          {
+            id: '1',
+            title: '历史对话',
+            messages: [
+              { id: 'msg-1', role: MessageRole.USER, content: '你好' },
+              { id: 'msg-2', role: MessageRole.ASSISTANT, content: '你好，有什么可以帮你？' },
+            ],
+          },
+        ]),
+      };
+
+      conversationRepository.createQueryBuilder.mockReturnValue(queryBuilder);
+
+      const result = await service.findAll('user-1');
+
+      expect(queryBuilder.leftJoinAndSelect).toHaveBeenCalledWith('conversation.messages', 'message');
+      expect(queryBuilder.orderBy).toHaveBeenCalledWith('conversation.updatedAt', 'DESC');
+      expect(queryBuilder.addOrderBy).toHaveBeenCalledWith('message.createdAt', 'ASC');
+      expect(result[0].messages).toHaveLength(2);
+    });
+
     it('should return all conversations without user filter', async () => {
       const mockConversations = [{ id: '1', name: 'Conv 1' }];
 
       conversationRepository.createQueryBuilder.mockReturnValue({
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
         getMany: jest.fn().mockResolvedValue(mockConversations),
       });
 
@@ -153,8 +187,10 @@ describe('ConversationService', () => {
 
     it('should return empty array if no conversations', async () => {
       conversationRepository.createQueryBuilder.mockReturnValue({
+        leftJoinAndSelect: jest.fn().mockReturnThis(),
         where: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
         getMany: jest.fn().mockResolvedValue([]),
       });
 

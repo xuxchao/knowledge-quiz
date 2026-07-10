@@ -33,12 +33,14 @@ export class ConversationService {
   @LogServiceCall()
   async findAll(userId?: string): Promise<Conversation[]> {
     const query = this.conversationRepository.createQueryBuilder('conversation');
+    query.leftJoinAndSelect('conversation.messages', 'message');
 
     if (userId) {
       query.where('conversation.userId = :userId', { userId });
     }
 
     query.orderBy('conversation.updatedAt', 'DESC');
+    query.addOrderBy('message.createdAt', 'ASC');
 
     return query.getMany();
   }

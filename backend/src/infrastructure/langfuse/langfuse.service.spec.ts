@@ -1,12 +1,27 @@
 import { ConfigService } from '@nestjs/config';
 import { LangfuseService } from './langfuse.service';
 
-jest.mock('langfuse', () => ({
-  Langfuse: jest.fn(),
+jest.mock('@langfuse/langchain', () => ({
+  CallbackHandler: jest.fn().mockImplementation((params) => ({ params })),
+}));
+
+jest.mock('@langfuse/otel', () => ({
+  LangfuseSpanProcessor: jest.fn().mockImplementation(() => ({
+    forceFlush: jest.fn().mockResolvedValue(undefined),
+  })),
+}));
+
+jest.mock('@opentelemetry/sdk-node', () => ({
+  NodeSDK: jest.fn().mockImplementation(() => ({
+    start: jest.fn(),
+    shutdown: jest.fn().mockResolvedValue(undefined),
+  })),
 }));
 
 describe('LangfuseService', () => {
-  const MockedLangfuse: jest.Mock = jest.requireMock('langfuse').Langfuse;
+  const MockedCallbackHandler = jest.requireMock('@langfuse/langchain').CallbackHandler as jest.Mock;
+  const MockedSpanProcessor = jest.requireMock('@langfuse/otel').LangfuseSpanProcessor as jest.Mock;
+  const MockedNodeSDK = jest.requireMock('@opentelemetry/sdk-node').NodeSDK as jest.Mock;
 
   afterEach(() => {
     jest.clearAllMocks();
@@ -20,25 +35,10 @@ describe('LangfuseService', () => {
     service.onModuleInit();
 
     expect(service.isEnabled()).toBe(false);
-    expect(MockedLangfuse).not.toHaveBeenCalled();
+    expect(MockedSpanProcessor).not.toHaveBeenCalled();
   });
 
-  it('should initialize client and create chat generation traces', async () => {
-    const generation = {
-      end: jest.fn(),
-    };
-    const trace = {
-      generation: jest.fn().mockReturnValue(generation),
-      update: jest.fn(),
-    };
-    const client = {
-      trace: jest.fn().mockReturnValue(trace),
-      flushAsync: jest.fn().mockResolvedValue(undefined),
-      shutdownAsync: jest.fn().mockResolvedValue(undefined),
-    };
-
-    MockedLangfuse.mockImplementation(() => client as never);
-
+  it('should initialize OTEL and create a session-aware LangChain callback', async () => {
     const service = new LangfuseService({
       get: jest.fn((key: string) => {
         const values: Record<string, string> = {
@@ -51,46 +51,32 @@ describe('LangfuseService', () => {
     } as unknown as ConfigService);
 
     service.onModuleInit();
-    const startedTrace = service.startChatTrace({
-      conversationId: 'conv-1',
-      userId: 'user-1',
-      message: '你好',
-      systemPrompt: '系统提示词',
-    });
-    const startedGeneration = service.startGeneration(startedTrace, 'qwen-plus', '你好');
-    service.completeGeneration(startedTrace, startedGeneration, '你好，有什么可以帮你？');
+    const handler = service.createChatHandler({ conversationId: 'conv-1', userId: 'user-1' });
     await service.flush();
     await service.shutdown();
 
-    expect(MockedLangfuse).toHaveBeenCalledWith({
+    expect(MockedSpanProcessor).toHaveBeenCalledWith({
       publicKey: 'public-key',
       secretKey: 'secret-key',
       baseUrl: 'http://localhost:3005',
-      enabled: true,
+      exportMode: 'batched',
+      mediaUploadEnabled: false,
     });
-    expect(client.trace).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: 'conversation.chat',
-        sessionId: 'conv-1',
-        userId: 'user-1',
-        input: '你好',
-      }),
-    );
-    expect(trace.generation).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: 'qwen.chat.stream',
-        model: 'qwen-plus',
-        input: '你好',
-      }),
-    );
-    expect(generation.end).toHaveBeenCalledWith(
-      expect.objectContaining({
-        output: '你好，有什么可以帮你？',
-        level: 'DEFAULT',
-      }),
-    );
-    expect(trace.update).toHaveBeenCalledWith({ output: '你好，有什么可以帮你？' });
-    expect(client.flushAsync).toHaveBeenCalled();
-    expect(client.shutdownAsync).toHaveBeenCalled();
+    expect(MockedNodeSDK).toHaveBeenCalledWith({ spanProcessors: [expect.any(Object)] });
+    expect(MockedCallbackHandler).toHaveBeenCalledWith({
+      sessionId: 'conv-1',
+      userId: 'user-1',
+      tags: ['chat', 'langchain'],
+      traceMetadata: { conversationId: 'conv-1' },
+    });
+    expect(handler).toEqual({
+      params: expect.objectContaining({ sessionId: 'conv-1', userId: 'user-1' }),
+    });
+
+    const spanProcessor = MockedSpanProcessor.mock.results[0].value as { forceFlush: jest.Mock };
+    const sdk = MockedNodeSDK.mock.results[0].value as { start: jest.Mock; shutdown: jest.Mock };
+    expect(sdk.start).toHaveBeenCalled();
+    expect(spanProcessor.forceFlush).toHaveBeenCalled();
+    expect(sdk.shutdown).toHaveBeenCalled();
   });
 });

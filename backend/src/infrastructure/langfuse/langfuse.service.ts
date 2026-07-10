@@ -1,35 +1,20 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { LangfuseOptions } from 'langfuse';
+import { CallbackHandler } from '@langfuse/langchain';
+import { LangfuseSpanProcessor } from '@langfuse/otel';
+import { NodeSDK } from '@opentelemetry/sdk-node';
 import { LoggerService, LogServiceCall } from '../../common/logger';
 
-type LangfuseTraceLike = {
-  generation: (body: Record<string, unknown>) => LangfuseGenerationLike;
-  update?: (body: Record<string, unknown>) => void;
-};
-
-type LangfuseGenerationLike = {
-  update?: (body: Record<string, unknown>) => void;
-  end?: (body?: Record<string, unknown>) => void;
-};
-
-type LangfuseClientLike = {
-  trace: (body: Record<string, unknown>) => LangfuseTraceLike;
-  flushAsync: () => Promise<void>;
-  shutdownAsync: () => Promise<void>;
-};
-
-type ChatTraceInput = {
+export interface ChatTraceContext {
   conversationId: string;
   userId: string;
-  message: string;
-  systemPrompt: string;
-};
+}
 
 @Injectable()
 export class LangfuseService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new LoggerService(LangfuseService.name);
-  private client?: LangfuseClientLike;
+  private sdk?: NodeSDK;
+  private spanProcessor?: LangfuseSpanProcessor;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -37,25 +22,23 @@ export class LangfuseService implements OnModuleInit, OnModuleDestroy {
     const publicKey = this.configService.get<string>('LANGFUSE_PUBLIC_KEY');
     const secretKey = this.configService.get<string>('LANGFUSE_SECRET_KEY');
     const baseUrl =
-      this.configService.get<string>('LANGFUSE_HOST') ?? this.configService.get<string>('LANGFUSE_BASE_URL');
+      this.configService.get<string>('LANGFUSE_BASE_URL') ?? this.configService.get<string>('LANGFUSE_HOST');
 
     if (!publicKey || !secretKey || !baseUrl) {
-      this.logger.warn('Langfuse配置不完整，已跳过上报初始化');
+      this.logger.warn('Langfuse配置不完整，已跳过LangChain自动上报初始化');
       return;
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- Langfuse v3 loads dynamic imports that break Jest when imported at module scope.
-    const { Langfuse } = require('langfuse') as {
-      Langfuse: new (params: { publicKey?: string; secretKey?: string } & LangfuseOptions) => LangfuseClientLike;
-    };
-
-    this.client = new Langfuse({
+    this.spanProcessor = new LangfuseSpanProcessor({
       publicKey,
       secretKey,
       baseUrl,
-      enabled: true,
+      exportMode: 'batched',
+      mediaUploadEnabled: false,
     });
-    this.logger.info('Langfuse上报初始化完成');
+    this.sdk = new NodeSDK({ spanProcessors: [this.spanProcessor] });
+    this.sdk.start();
+    this.logger.info('Langfuse LangChain自动上报初始化完成');
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -63,97 +46,29 @@ export class LangfuseService implements OnModuleInit, OnModuleDestroy {
   }
 
   isEnabled(): boolean {
-    return Boolean(this.client);
+    return Boolean(this.sdk);
   }
 
   @LogServiceCall()
-  startChatTrace(input: ChatTraceInput): LangfuseTraceLike | undefined {
-    if (!this.client) return undefined;
+  createChatHandler(context: ChatTraceContext): CallbackHandler | undefined {
+    if (!this.sdk) return undefined;
 
-    try {
-      return this.client.trace({
-        name: 'conversation.chat',
-        sessionId: input.conversationId,
-        userId: input.userId,
-        input: input.message,
-        metadata: {
-          conversationId: input.conversationId,
-          systemPromptLength: input.systemPrompt.length,
-        },
-        tags: ['chat'],
-      });
-    } catch (error: unknown) {
-      this.logLangfuseError('创建Langfuse trace失败', error);
-      return undefined;
-    }
-  }
-
-  @LogServiceCall()
-  startGeneration(
-    trace: LangfuseTraceLike | undefined,
-    model: string,
-    input: string,
-  ): LangfuseGenerationLike | undefined {
-    try {
-      return trace?.generation({
-        name: 'qwen.chat.stream',
-        model,
-        input,
-        startTime: new Date(),
-      });
-    } catch (error: unknown) {
-      this.logLangfuseError('创建Langfuse generation失败', error);
-      return undefined;
-    }
-  }
-
-  @LogServiceCall()
-  completeGeneration(
-    trace: LangfuseTraceLike | undefined,
-    generation: LangfuseGenerationLike | undefined,
-    output: string,
-  ): void {
-    try {
-      generation?.end?.({
-        output,
-        endTime: new Date(),
-        level: 'DEFAULT',
-      });
-      trace?.update?.({
-        output,
-      });
-    } catch (error: unknown) {
-      this.logLangfuseError('完成Langfuse generation失败', error);
-    }
-  }
-
-  @LogServiceCall()
-  failGeneration(
-    generation: LangfuseGenerationLike | undefined,
-    errorMessage: string,
-    trace?: LangfuseTraceLike,
-  ): void {
-    try {
-      generation?.end?.({
-        endTime: new Date(),
-        level: 'ERROR',
-        statusMessage: errorMessage,
-      });
-      trace?.update?.({
-        metadata: {
-          error: errorMessage,
-        },
-      });
-    } catch (error: unknown) {
-      this.logLangfuseError('记录Langfuse异常状态失败', error);
-    }
+    return new CallbackHandler({
+      sessionId: context.conversationId,
+      userId: context.userId,
+      tags: ['chat', 'langchain'],
+      traceMetadata: {
+        conversationId: context.conversationId,
+      },
+    });
   }
 
   @LogServiceCall()
   async flush(): Promise<void> {
-    if (!this.client) return;
+    if (!this.spanProcessor) return;
+
     try {
-      await this.client.flushAsync();
+      await this.spanProcessor.forceFlush();
     } catch (error: unknown) {
       this.logLangfuseError('刷新Langfuse事件失败', error);
     }
@@ -161,9 +76,12 @@ export class LangfuseService implements OnModuleInit, OnModuleDestroy {
 
   @LogServiceCall()
   async shutdown(): Promise<void> {
-    if (!this.client) return;
+    if (!this.sdk) return;
+
     try {
-      await this.client.shutdownAsync();
+      await this.sdk.shutdown();
+      this.sdk = undefined;
+      this.spanProcessor = undefined;
     } catch (error: unknown) {
       this.logLangfuseError('关闭Langfuse客户端失败', error);
     }

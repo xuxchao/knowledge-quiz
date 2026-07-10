@@ -2,6 +2,8 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
 import type { AIMessageChunk, BaseMessage } from '@langchain/core/messages';
+import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
+import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { LoggerService, LogServiceCall } from '../common/logger';
 
 @Injectable()
@@ -9,6 +11,7 @@ export class AiService implements OnModuleInit {
   private readonly logger = new LoggerService(AiService.name);
   private chatModel: ChatOpenAI;
   private embeddings: OpenAIEmbeddings;
+  private chatPrompt: ChatPromptTemplate;
 
   constructor(private configService: ConfigService) {}
 
@@ -42,6 +45,11 @@ export class AiService implements OnModuleInit {
       model: 'text-embedding-v2',
     });
 
+    this.chatPrompt = ChatPromptTemplate.fromMessages([
+      ['system', '{systemPrompt}'],
+      ['human', '{query}'],
+    ]);
+
     this.logger.info('AI服务初始化完成');
   }
 
@@ -64,29 +72,45 @@ export class AiService implements OnModuleInit {
   }
 
   @LogServiceCall()
-  async streamChain(query: string, systemPrompt: string): Promise<AsyncIterable<AIMessageChunk>> {
-    return this.chatModel.stream([
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: query },
-    ]);
+  async streamChain(
+    query: string,
+    systemPrompt: string,
+    callbacks: BaseCallbackHandler[] = [],
+  ): Promise<AsyncIterable<AIMessageChunk>> {
+    const chain = this.chatPrompt.pipe(this.chatModel);
+    return chain.stream(
+      { query, systemPrompt },
+      {
+        callbacks,
+        runName: 'conversation.chat',
+        tags: ['chat'],
+      },
+    );
   }
 
   @LogServiceCall()
-  async generateConversationTitle(firstMessage: string): Promise<string> {
+  async generateConversationTitle(firstMessage: string, callbacks: BaseCallbackHandler[] = []): Promise<string> {
     const fallbackTitle = this.buildFallbackTitle(firstMessage);
 
     try {
-      const response = await this.chatModel.invoke([
+      const response = await this.chatModel.invoke(
+        [
+          {
+            role: 'system',
+            content:
+              '你是会话标题生成助手。请根据用户第一句话生成一个简短中文标题，最多12个汉字，不要使用引号、句号或解释。',
+          },
+          {
+            role: 'user',
+            content: firstMessage,
+          },
+        ],
         {
-          role: 'system',
-          content:
-            '你是会话标题生成助手。请根据用户第一句话生成一个简短中文标题，最多12个汉字，不要使用引号、句号或解释。',
+          callbacks,
+          runName: 'conversation.title',
+          tags: ['chat', 'title'],
         },
-        {
-          role: 'user',
-          content: firstMessage,
-        },
-      ]);
+      );
 
       const title = this.extractMessageContent(response)
         .replace(/["'“”‘’。.!！?？]/g, '')

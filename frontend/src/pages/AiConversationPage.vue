@@ -11,6 +11,7 @@ const {
   currentConversation,
   messages,
   isLoading,
+  isConversationLoading,
   fetchConversations,
   selectConversation,
   createNewConversation,
@@ -35,7 +36,11 @@ onMounted(() => {
 
     <div class="flex-1 flex flex-col">
       <template v-if="currentConversation">
-        <MessageList :messages="messages" :is-loading="isLoading" />
+        <MessageList
+          :messages="messages"
+          :is-loading="isLoading"
+          :is-conversation-loading="isConversationLoading"
+        />
         <ChatInput :disabled="isLoading" @send="sendMessage" />
       </template>
 

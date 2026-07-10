@@ -3,12 +3,24 @@ export interface Message {
   role: 'user' | 'assistant';
   content: string;
   createdAt: Date;
+  references?: DocumentReference[];
+}
+
+export interface DocumentReference {
+  documentId: string;
+  documentName: string;
+  downloadUrl: string;
+  chunkIndex: number;
+  content: string;
+  score: number;
 }
 
 export interface Conversation {
   id: string;
   userId: string;
-  messages: Message[];
+  title?: string;
+  messageCount?: number;
+  messages?: Message[];
   createdAt: Date;
   updatedAt: Date;
 }

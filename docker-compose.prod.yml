@@ -16,10 +16,17 @@ services:
     restart: always
     volumes:
       - ./volumes-prod/postgres-data:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d
     environment:
       - POSTGRES_DB=${POSTGRES_DB:-knowledge_doc}
       - POSTGRES_USER=${POSTGRES_USER:-admin}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-admin} -d ${POSTGRES_DB:-knowledge_doc}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
     networks:
       - knowledge-doc-network
 
@@ -58,8 +65,58 @@ services:
       - ./volumes-prod/clickhouse-data:/var/lib/clickhouse
     environment:
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
-      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-langfuse123}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-langfuse}
+    healthcheck:
+      test: ["CMD", "clickhouse-client", "--password=${CLICKHOUSE_PASSWORD:-langfuse123}", "--query=SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - knowledge-doc-network
+
+  rustfs:
+    image: rustfs/rustfs:1.0.0-alpha.77
+    container_name: knowledge-doc-rustfs-prod
+    hostname: rustfs
+    restart: always
+    volumes:
+      - ./volumes-prod/rustfs-data:/data
+      - ./volumes-prod/rustfs-logs:/logs
+    environment:
+      - RUSTFS_VOLUMES=/data
+      - RUSTFS_ADDRESS=0.0.0.0:9000
+      - RUSTFS_CONSOLE_ENABLE=true
+      - RUSTFS_CONSOLE_ADDRESS=0.0.0.0:9001
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin}
+    healthcheck:
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - knowledge-doc-network
+
+  rustfs-init:
+    image: public.ecr.aws/aws-cli/aws-cli:latest
+    container_name: knowledge-doc-rustfs-init-prod
+    depends_on:
+      rustfs:
+        condition: service_healthy
+    environment:
+      - AWS_ACCESS_KEY_ID=${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      - AWS_SECRET_ACCESS_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin}
+      - AWS_DEFAULT_REGION=${RUSTFS_REGION:-us-east-1}
+      - RUSTFS_BUCKET=${RUSTFS_BUCKET:-documents}
+      - LANGFUSE_BUCKET=${LANGFUSE_S3_EVENT_UPLOAD_BUCKET:-langfuse}
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket "$${RUSTFS_BUCKET}" 2>/dev/null || aws --endpoint-url http://rustfs:9000 s3api create-bucket --bucket "$${RUSTFS_BUCKET}"
+        aws --endpoint-url http://rustfs:9000 s3api head-bucket --bucket "$${LANGFUSE_BUCKET}" 2>/dev/null || aws --endpoint-url http://rustfs:9000 s3api create-bucket --bucket "$${LANGFUSE_BUCKET}"
     networks:
       - knowledge-doc-network
 
@@ -68,28 +125,33 @@ services:
     container_name: knowledge-doc-langfuse-prod
     restart: always
     depends_on:
-      - postgres
-      - redis
-      - clickhouse
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      clickhouse:
+        condition: service_healthy
+      rustfs-init:
+        condition: service_completed_successfully
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password}@postgres:5432/${POSTGRES_DB:-knowledge_doc}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password}@postgres:5432/${LANGFUSE_DB:-langfuse}
       - REDIS_URL=redis://redis:6379
       - REDIS_CONNECTION_STRING=redis://redis:6379
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      - CLICKHOUSE_URL=http://clickhouse:8123/${CLICKHOUSE_DB:-default}
-      - CLICKHOUSE_MIGRATION_URL=clickhouse://${CLICKHOUSE_USER:-default}:${CLICKHOUSE_PASSWORD:-}@clickhouse:9000/${CLICKHOUSE_DB:-default}
+      - CLICKHOUSE_URL=http://${CLICKHOUSE_USER:-default}:${CLICKHOUSE_PASSWORD:-langfuse123}@clickhouse:8123/${CLICKHOUSE_DB:-langfuse}
+      - CLICKHOUSE_MIGRATION_URL=clickhouse://${CLICKHOUSE_USER:-default}:${CLICKHOUSE_PASSWORD:-langfuse123}@clickhouse:9000/${CLICKHOUSE_DB:-langfuse}
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
-      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-}
-      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-default}
+      - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-langfuse123}
+      - CLICKHOUSE_DB=${CLICKHOUSE_DB:-langfuse}
       - CLICKHOUSE_CLUSTER_ENABLED=${CLICKHOUSE_CLUSTER_ENABLED:-false}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-langfuse-secret-key}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-langfuse-public-key}
       - NEXTAUTH_SECRET=${NEXTAUTH_SECRET:-nextauth-secret}
       - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=${LANGFUSE_S3_EVENT_UPLOAD_BUCKET:-langfuse}
-      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=${LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT:-}
-      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=${LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID:-}
-      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=${LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY:-}
+      - LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT=${LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT:-http://rustfs:9000}
+      - LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID=${LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID:-rustfsadmin}
+      - LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY=${LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY:-rustfsadmin}
       - LANGFUSE_S3_EVENT_UPLOAD_REGION=${LANGFUSE_S3_EVENT_UPLOAD_REGION:-us-east-1}
       - LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE=${LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE:-true}
     networks:
@@ -106,6 +168,7 @@ services:
       - redis
       - neo4j
       - elasticsearch
+      - rustfs
       - langfuse
     environment:
       - NODE_ENV=production
@@ -120,6 +183,11 @@ services:
       - NEO4J_USER=${NEO4J_USER:-neo4j}
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}
       - ELASTICSEARCH_HOST=http://elasticsearch:9200
+      - RUSTFS_ENDPOINT=http://rustfs:9000
+      - RUSTFS_ACCESS_KEY=${RUSTFS_ACCESS_KEY:-rustfsadmin}
+      - RUSTFS_SECRET_KEY=${RUSTFS_SECRET_KEY:-rustfsadmin}
+      - RUSTFS_BUCKET=${RUSTFS_BUCKET:-documents}
+      - RUSTFS_REGION=${RUSTFS_REGION:-us-east-1}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-langfuse-secret-key}
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-langfuse-public-key}
       - LANGFUSE_HOST=http://langfuse:3000

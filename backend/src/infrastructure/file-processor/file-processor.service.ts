@@ -325,6 +325,7 @@ export class FileProcessorService {
   async storeChunks(
     documentId: string,
     chunks: string[],
+    documentName: string = documentId,
   ): Promise<
     Array<{
       content: string;
@@ -367,6 +368,7 @@ export class FileProcessorService {
         content,
         metadata: {
           documentId,
+          documentName,
           chunkIndex: batchIndices[j],
           totalChunks,
         },
@@ -379,6 +381,7 @@ export class FileProcessorService {
           content,
           metadata: {
             documentId,
+            documentName,
             chunkIndex: batchIndices[j],
             totalChunks,
           },

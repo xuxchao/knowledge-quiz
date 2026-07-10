@@ -28,10 +28,14 @@ describe('AiService', () => {
     const title = await service.generateConversationTitle('怎么检索知识库里的内容？');
 
     expect(title).toBe('知识库检索');
-    expect(chatModel.invoke).toHaveBeenCalledWith([
-      expect.objectContaining({ role: 'system' }),
-      { role: 'user', content: '怎么检索知识库里的内容？' },
-    ]);
+    expect(chatModel.invoke).toHaveBeenCalledWith(
+      [expect.objectContaining({ role: 'system' }), { role: 'user', content: '怎么检索知识库里的内容？' }],
+      {
+        callbacks: [],
+        runName: 'conversation.title',
+        tags: ['chat', 'title'],
+      },
+    );
   });
 
   it('should fallback to trimmed first message when title generation fails', async () => {

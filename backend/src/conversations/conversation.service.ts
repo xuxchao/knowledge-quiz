@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Conversation } from '../entities/conversation.entity';
-import { Message, MessageRole } from '../entities/message.entity';
+import { DocumentReference, Message, MessageRole } from '../entities/message.entity';
 import { LoggerService, LogServiceCall } from '../common/logger';
 
 @Injectable()
@@ -24,25 +24,29 @@ export class ConversationService {
 
   @LogServiceCall()
   async findById(id: string): Promise<Conversation | null> {
-    return this.conversationRepository.findOne({
-      where: { id },
-      relations: { messages: true },
-    });
+    const conversation = await this.conversationRepository.findOne({ where: { id } });
+    if (!conversation) return null;
+
+    conversation.messages = await this.getMessages(id);
+    return conversation;
   }
 
   @LogServiceCall()
   async findAll(userId?: string): Promise<Conversation[]> {
     const query = this.conversationRepository.createQueryBuilder('conversation');
-    query.leftJoinAndSelect('conversation.messages', 'message');
 
     if (userId) {
       query.where('conversation.userId = :userId', { userId });
     }
 
     query.orderBy('conversation.updatedAt', 'DESC');
-    query.addOrderBy('message.createdAt', 'ASC');
 
     return query.getMany();
+  }
+
+  @LogServiceCall()
+  async updateTitle(id: string, title: string): Promise<void> {
+    await this.conversationRepository.update(id, { title });
   }
 
   @LogServiceCall()
@@ -52,11 +56,17 @@ export class ConversationService {
   }
 
   @LogServiceCall()
-  async createMessage(conversationId: string, role: MessageRole, content: string): Promise<Message> {
+  async createMessage(
+    conversationId: string,
+    role: MessageRole,
+    content: string,
+    references: DocumentReference[] = [],
+  ): Promise<Message> {
     const message = this.messageRepository.create({
       conversationId,
       role,
       content,
+      references,
     });
 
     await this.messageRepository.save(message);
@@ -64,6 +74,7 @@ export class ConversationService {
     await this.conversationRepository.update(conversationId, {
       updatedAt: new Date(),
     });
+    await this.conversationRepository.increment({ id: conversationId }, 'messageCount', 1);
 
     return message;
   }

@@ -6,6 +6,7 @@ const https = require('node:https');
 const path = require('node:path');
 const readline = require('node:readline/promises');
 const { createRequire } = require('node:module');
+const { spawnSync } = require('node:child_process');
 
 const backendRequire = createRequire(path.resolve(__dirname, '..', 'backend', 'package.json'));
 const { Client: PgClient } = backendRequire('pg');
@@ -101,7 +102,7 @@ const clickhouseConfig = {
   host: getEnv('CLICKHOUSE_HOST', 'localhost'),
   port: getNumberEnv('CLICKHOUSE_PORT', 8123),
   user: getEnv('CLICKHOUSE_USER', 'default'),
-  password: getEnv('CLICKHOUSE_PASSWORD', ''),
+  password: getEnv('CLICKHOUSE_PASSWORD', 'langfuse123'),
   database: getEnv('LANGFUSE_CLICKHOUSE_DB', getEnv('CLICKHOUSE_DB', 'langfuse')),
 };
 
@@ -116,14 +117,14 @@ const rustfsConfig = {
   bucket: getEnv('RUSTFS_BUCKET', 'documents'),
 };
 
-const minioConfig = {
+const langfuseStorageConfig = {
   endpoint: normalizeEndpoint(
-    getEnv('LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT', `http://localhost:${getNumberEnv('MINIO_PORT', 9002)}`),
-    getNumberEnv('MINIO_PORT', 9002),
+    getEnv('LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT', getEnv('RUSTFS_ENDPOINT', 'http://localhost:9004')),
+    getNumberEnv('RUSTFS_PORT', 9004),
   ),
-  accessKeyId: getEnv('LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID', getEnv('MINIO_ROOT_USER', 'minioadmin')),
-  secretAccessKey: getEnv('LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY', getEnv('MINIO_ROOT_PASSWORD', 'minioadmin')),
-  region: getEnv('LANGFUSE_S3_EVENT_UPLOAD_REGION', 'us-east-1'),
+  accessKeyId: getEnv('LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID', rustfsConfig.accessKeyId),
+  secretAccessKey: getEnv('LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY', rustfsConfig.secretAccessKey),
+  region: getEnv('LANGFUSE_S3_EVENT_UPLOAD_REGION', rustfsConfig.region),
   forcePathStyle: getBooleanEnv('LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE', true),
   bucket: getEnv('LANGFUSE_S3_EVENT_UPLOAD_BUCKET', 'langfuse'),
 };
@@ -131,7 +132,7 @@ const minioConfig = {
 function normalizeEndpoint(endpoint, hostPort) {
   try {
     const url = new URL(endpoint);
-    if (['minio', 'rustfs'].includes(url.hostname)) {
+    if (url.hostname === 'rustfs') {
       url.hostname = 'localhost';
       url.port = String(hostPort);
     }
@@ -274,11 +275,52 @@ function httpRequest(method, url, body, headers = {}) {
     );
 
     request.on('error', reject);
+    request.setTimeout(10000, () => {
+      request.destroy(new Error(`${method} ${url} 请求超时`));
+    });
     if (body) {
       request.write(body);
     }
     request.end();
   });
+}
+
+function restartLangfuseServices() {
+  console.log('正在重启 Langfuse Web 和 Worker 以恢复默认数据');
+  const result = spawnSync('docker', ['compose', 'restart', 'langfuse', 'langfuse-worker'], {
+    cwd: path.resolve(__dirname, '..'),
+    stdio: 'inherit',
+  });
+
+  if (result.error) {
+    throw result.error;
+  }
+  if (result.status !== 0) {
+    throw new Error(`Langfuse 服务重启失败，docker compose 退出码: ${result.status}`);
+  }
+}
+
+async function waitForLangfuse() {
+  const baseUrl = getEnv('NEXTAUTH_URL', 'http://localhost:3005').replace(/\/$/, '');
+  let lastError;
+  let consecutiveSuccesses = 0;
+
+  for (let attempt = 1; attempt <= 30; attempt += 1) {
+    try {
+      await httpRequest('GET', baseUrl);
+      consecutiveSuccesses += 1;
+      if (consecutiveSuccesses >= 3) {
+        console.log('Langfuse 服务已恢复');
+        return;
+      }
+    } catch (error) {
+      lastError = error;
+      consecutiveSuccesses = 0;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+
+  throw new Error(`Langfuse 服务未在预期时间内恢复: ${lastError instanceof Error ? lastError.message : lastError}`);
 }
 
 function buildClickHouseUrl() {
@@ -412,7 +454,7 @@ async function confirmReset() {
 
   console.log('本操作会删除项目运行过程中产生的数据，包括 PostgreSQL、Redis、Neo4j、Elasticsearch 和 RustFS。');
   if (!skipObservability) {
-    console.log('同时也会重置 Langfuse 在 PostgreSQL、ClickHouse、Redis 和 MinIO 中产生的运行数据。');
+    console.log('同时也会重置 Langfuse 在 PostgreSQL、ClickHouse、Redis 和 RustFS 中产生的运行数据。');
   }
   console.log('如果确认要继续，请在下面输入 RESET。');
 
@@ -443,7 +485,7 @@ async function checkConnections() {
     await checkPostgresDatabase(langfuseDb);
     await checkClickHouse();
     if (!skipObjectStorage) {
-      await checkBucket('MinIO', minioConfig);
+      await checkBucket('Langfuse RustFS', langfuseStorageConfig);
     }
   }
 }
@@ -462,8 +504,10 @@ async function resetDatabases() {
     await resetPostgresDatabase(langfuseDb, ['_prisma_migrations']);
     await resetClickHouseDatabase();
     if (!skipObjectStorage) {
-      await clearBucket('MinIO', minioConfig);
+      await clearBucket('Langfuse RustFS', langfuseStorageConfig);
     }
+    restartLangfuseServices();
+    await waitForLangfuse();
   }
 }
 
@@ -485,6 +529,11 @@ async function main() {
 }
 
 main().catch((error) => {
-  console.error(error.message);
+  const nestedErrors = error instanceof AggregateError ? error.errors : [];
+  const details = [error, ...nestedErrors]
+    .map((item) => (item instanceof Error ? item.message || item.code || item.name : String(item)))
+    .filter(Boolean)
+    .join('; ');
+  console.error(details || '数据库重置失败，未返回错误详情');
   process.exit(1);
 });

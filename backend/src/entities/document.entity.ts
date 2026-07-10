@@ -41,6 +41,9 @@ export class Document {
   @Column({ type: 'varchar', nullable: true })
   path: string;
 
+  @Column({ type: 'varchar', nullable: true })
+  storageKey: string;
+
   @Column({ type: 'text', nullable: true })
   url: string;
 

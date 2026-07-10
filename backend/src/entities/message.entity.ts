@@ -7,6 +7,15 @@ export enum MessageRole {
   SYSTEM = 'system',
 }
 
+export interface DocumentReference {
+  documentId: string;
+  documentName: string;
+  downloadUrl: string;
+  chunkIndex: number;
+  content: string;
+  score: number;
+}
+
 @Entity('messages')
 export class Message {
   @PrimaryGeneratedColumn('uuid')
@@ -30,7 +39,7 @@ export class Message {
   metadata: Record<string, unknown>;
 
   @Column({ type: 'json', nullable: true })
-  references: Record<string, unknown>[];
+  references: DocumentReference[];
 
   @CreateDateColumn({ type: 'timestamp' })
   createdAt: Date;

@@ -146,11 +146,11 @@ describe('FileProcessorService', () => {
         [
           {
             content: 'chunk1',
-            metadata: { documentId: 'doc-1', chunkIndex: 0, totalChunks: 2 },
+            metadata: { documentId: 'doc-1', documentName: 'doc-1', chunkIndex: 0, totalChunks: 2 },
           },
           {
             content: 'chunk2',
-            metadata: { documentId: 'doc-1', chunkIndex: 1, totalChunks: 2 },
+            metadata: { documentId: 'doc-1', documentName: 'doc-1', chunkIndex: 1, totalChunks: 2 },
           },
         ],
         embeddings,

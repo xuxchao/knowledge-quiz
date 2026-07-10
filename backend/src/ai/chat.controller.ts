@@ -7,11 +7,19 @@ import { AiService } from './ai.service';
 import { MemoryService } from '../memory/memory.service';
 import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
 import { LangfuseService } from '../infrastructure/langfuse/langfuse.service';
-import { MessageRole } from '../entities/message.entity';
+import { DocumentReference, MessageRole } from '../entities/message.entity';
 import { LoggerService } from '../common/logger';
 
+interface ChatDataParts {
+  [key: string]: unknown;
+  'conversation-id': { conversationId: string };
+  citations: { citations: DocumentReference[] };
+}
+
+type ChatUIMessage = UIMessage<unknown, ChatDataParts>;
+
 interface ChatRequestBody {
-  messages?: UIMessage[];
+  messages?: ChatUIMessage[];
   conversationId?: string;
   userId?: string;
 }
@@ -46,14 +54,19 @@ export class ChatController {
     }
 
     if (!conversationId) {
-      const title = await this.aiService.generateConversationTitle(message);
       const conversation = await this.conversationService.create({
         userId: uid,
-        title,
+        title: message.replace(/\s+/g, ' ').trim().slice(0, 24) || '新的会话',
       });
       conversationId = conversation.id;
+      const titleHandler = this.langfuseService.createChatHandler({ conversationId, userId: uid });
+      const title = await this.aiService.generateConversationTitle(message, titleHandler ? [titleHandler] : []);
+      await this.conversationService.updateTitle(conversationId, title);
       this.logger.info(`新建会话 - ID: ${conversationId}, 标题: ${title}`);
     }
+
+    const langfuseHandler = this.langfuseService.createChatHandler({ conversationId, userId: uid });
+    const callbacks = langfuseHandler ? [langfuseHandler] : [];
 
     await this.conversationService.createMessage(conversationId, MessageRole.USER, message);
     await this.memoryService.saveShortTermMemory(conversationId, message);
@@ -64,6 +77,7 @@ export class ChatController {
     const queryEmbedding = await this.aiService.generateEmbedding(message);
     const relevantChunks = await this.neo4jService.search(queryEmbedding, 5);
     const chunkContext = relevantChunks.map((c) => c.content).join('\n');
+    const citations = this.buildCitations(relevantChunks);
 
     const systemPrompt = `你是一个知识问答助手。请根据以下上下文回答用户问题：
 
@@ -77,31 +91,28 @@ ${memoryContext}
 
     this.logger.info(`开始对话 - 会话ID: ${conversationId}, 用户ID: ${uid}, 用户消息长度: ${message.length}`);
 
-    const langChainStream = await this.aiService.streamChain(message, systemPrompt);
-    const langfuseTrace = this.langfuseService.startChatTrace({
-      conversationId,
-      userId: uid,
-      message,
-      systemPrompt,
-    });
-    const langfuseGeneration = this.langfuseService.startGeneration(langfuseTrace, 'qwen-plus', message);
-    const aiSdkStream = createUIMessageStream({
+    const langChainStream = await this.aiService.streamChain(message, systemPrompt, callbacks);
+    const aiSdkStream = createUIMessageStream<ChatUIMessage>({
       execute: ({ writer }) => {
         writer.write({
           type: 'data-conversation-id',
           data: { conversationId },
           transient: true,
         });
+        if (citations.length > 0) {
+          writer.write({
+            type: 'data-citations',
+            data: { citations },
+          });
+        }
         writer.merge(
           toUIMessageStream(langChainStream, {
             onFinal: async (fullResponse) => {
-              await this.saveAssistantResponse(conversationId, uid, fullResponse);
-              this.langfuseService.completeGeneration(langfuseTrace, langfuseGeneration, fullResponse);
+              await this.saveAssistantResponse(conversationId, uid, fullResponse, citations);
               await this.langfuseService.flush();
             },
             onError: async (error) => {
               this.logger.error(`对话流处理失败 - 会话ID: ${conversationId}，错误: ${error.message}`, error.stack);
-              this.langfuseService.failGeneration(langfuseGeneration, error.message, langfuseTrace);
               await this.langfuseService.flush();
             },
           }),
@@ -110,7 +121,6 @@ ${memoryContext}
       onError: (error: unknown) => {
         const errorMessage = error instanceof Error ? error.message : String(error);
         this.logger.error(`对话响应生成失败 - 会话ID: ${conversationId}，错误: ${errorMessage}`);
-        this.langfuseService.failGeneration(langfuseGeneration, errorMessage, langfuseTrace);
         return '对话响应生成失败';
       },
     });
@@ -121,7 +131,7 @@ ${memoryContext}
     });
   }
 
-  private extractLastUserMessage(messages: UIMessage[] | undefined): string {
+  private extractLastUserMessage(messages: ChatUIMessage[] | undefined): string {
     const lastUserMessage = [...(messages ?? [])].reverse().find((message) => message.role === 'user');
     const textParts = lastUserMessage?.parts
       .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
@@ -130,14 +140,19 @@ ${memoryContext}
     return textParts?.join('').trim() ?? '';
   }
 
-  private async saveAssistantResponse(conversationId: string, userId: string, fullResponse: string): Promise<void> {
+  private async saveAssistantResponse(
+    conversationId: string,
+    userId: string,
+    fullResponse: string,
+    citations: DocumentReference[],
+  ): Promise<void> {
     if (!fullResponse.trim()) {
       this.logger.warn(`对话响应为空 - 会话ID: ${conversationId}`);
       return;
     }
 
     try {
-      await this.conversationService.createMessage(conversationId, MessageRole.ASSISTANT, fullResponse);
+      await this.conversationService.createMessage(conversationId, MessageRole.ASSISTANT, fullResponse, citations);
       await this.memoryService.saveShortTermMemory(conversationId, fullResponse);
       this.memoryService.saveLongTermMemory(userId, fullResponse);
       this.logger.info(`对话完成 - 会话ID: ${conversationId}, 响应长度: ${fullResponse.length}`);
@@ -146,5 +161,29 @@ ${memoryContext}
       const stackTrace = error instanceof Error ? error.stack : undefined;
       this.logger.error(`对话完成后保存失败 - 会话ID: ${conversationId}，错误: ${errorMessage}`, stackTrace);
     }
+  }
+
+  private buildCitations(
+    chunks: Array<{ content: string; metadata: Record<string, unknown>; score: number }>,
+  ): DocumentReference[] {
+    const citations = new Map<string, DocumentReference>();
+
+    for (const chunk of chunks) {
+      const documentId = typeof chunk.metadata.documentId === 'string' ? chunk.metadata.documentId : undefined;
+      if (!documentId) continue;
+
+      const chunkIndex = Number(chunk.metadata.chunkIndex ?? 0);
+      const key = `${documentId}:${chunkIndex}`;
+      citations.set(key, {
+        documentId,
+        documentName: typeof chunk.metadata.documentName === 'string' ? chunk.metadata.documentName : '未命名文档',
+        downloadUrl: `/api/documents/${encodeURIComponent(documentId)}/download`,
+        chunkIndex,
+        content: chunk.content,
+        score: chunk.score,
+      });
+    }
+
+    return [...citations.values()];
   }
 }

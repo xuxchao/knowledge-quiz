@@ -1,16 +1,22 @@
 <script setup lang="ts">
 import { nextTick, useTemplateRef, watch } from 'vue';
-import { MessageSquare, Pause, Play } from 'lucide-vue-next';
+import { Download, FileText, LoaderCircle, MessageSquare, Pause, Play } from 'lucide-vue-next';
 import MarkdownIt from 'markdown-it';
 import { useSpeechSynthesis } from '@/composables/useSpeechSynthesis';
+import { baseURL } from '@/core/http';
 import type { Message } from '@/types';
 
 const props = defineProps<{
   messages: Message[];
   isLoading: boolean;
+  isConversationLoading: boolean;
 }>();
 
 const md = new MarkdownIt({ html: false });
+
+function getDownloadUrl(downloadUrl: string): string {
+  return /^https?:\/\//i.test(downloadUrl) ? downloadUrl : `${baseURL}${downloadUrl}`;
+}
 const containerRef = useTemplateRef<HTMLElement>('messageContainer');
 const {
   isSupported: isSpeechSupported,
@@ -81,7 +87,46 @@ watch(
           ></div>
           <!-- eslint-enable vue/no-v-html -->
           <p v-else class="whitespace-pre-wrap">{{ msg.content }}</p>
+
+          <div
+            v-if="msg.role === 'assistant' && msg.references?.length"
+            class="mt-4 pt-3 border-t border-gray-300"
+          >
+            <div class="flex items-center gap-2 text-sm font-medium text-gray-600 mb-2">
+              <FileText class="w-4 h-4" />
+              <span>引用文档</span>
+            </div>
+            <details
+              v-for="reference in msg.references"
+              :key="`${reference.documentId}-${reference.chunkIndex}`"
+              class="py-2 border-t border-gray-200 first:border-t-0"
+            >
+              <summary class="cursor-pointer text-sm text-gray-700">
+                <span>{{ reference.documentName }} · 片段 {{ reference.chunkIndex + 1 }}</span>
+              </summary>
+              <a
+                class="mt-2 inline-flex items-center gap-1.5 text-sm text-blue-600 hover:text-blue-700 hover:underline"
+                :href="getDownloadUrl(reference.downloadUrl)"
+                :download="reference.documentName"
+                :aria-label="`下载引用文档 ${reference.documentName}`"
+              >
+                <Download class="h-4 w-4" />
+                <span>下载原始文档</span>
+              </a>
+              <p class="mt-2 text-sm leading-6 text-gray-600 whitespace-pre-wrap">
+                {{ reference.content }}
+              </p>
+            </details>
+          </div>
         </div>
+      </div>
+
+      <div
+        v-if="isConversationLoading"
+        class="flex items-center justify-center gap-2 py-8 text-gray-500"
+      >
+        <LoaderCircle class="w-5 h-5 animate-spin" />
+        <span>正在加载消息</span>
       </div>
 
       <div v-if="isLoading" class="flex justify-start">
@@ -104,7 +149,7 @@ watch(
       </div>
 
       <div
-        v-if="messages.length === 0"
+        v-if="messages.length === 0 && !isConversationLoading"
         class="flex flex-col items-center justify-center h-full text-gray-400"
       >
         <MessageSquare class="w-16 h-16 mb-4 text-gray-200" />

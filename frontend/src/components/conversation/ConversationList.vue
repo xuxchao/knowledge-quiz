@@ -40,11 +40,11 @@ const emit = defineEmits<{
           <div class="flex items-center space-x-2">
             <MessageSquare class="w-4 h-4 text-gray-400" />
             <span class="font-medium text-gray-900 truncate">
-              {{ conv.messages?.[0]?.content || '新会话' }}
+              {{ conv.title || '新会话' }}
             </span>
           </div>
           <p class="text-sm text-gray-500 truncate mt-1">
-            {{ conv.messages?.[conv.messages.length - 1]?.content || '暂无消息' }}
+            {{ conv.messageCount ? `${conv.messageCount} 条消息` : '暂无消息' }}
           </p>
           <p class="text-xs text-gray-400 mt-1">
             {{ new Date(conv.updatedAt).toLocaleString() }}

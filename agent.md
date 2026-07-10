@@ -8,7 +8,7 @@ This file is written for future AI/coding agents working in this repository. It 
 
 - `backend/`: NestJS 11 + TypeScript API service.
 - `frontend/`: Vue 3 + TypeScript + Vite single-page UI.
-- `docker-compose.yml`: local infrastructure for PostgreSQL, Redis, Elasticsearch, Neo4j, ClickHouse, RustFS/MinIO, Langfuse, and admin tools.
+- `docker-compose.yml`: local infrastructure for PostgreSQL, Redis, Elasticsearch, Neo4j, ClickHouse, RustFS, Langfuse, and admin tools.
 
 Core product flow:
 
@@ -253,7 +253,7 @@ Linting:
 - Elasticsearch on `9200` and `9300`.
 - Neo4j browser on `7474`, Bolt on `7687`.
 - ClickHouse on `8123` and `9000`.
-- MinIO on `9002` and console `9003`.
+- RustFS S3 API on `9004` and console on `9005`.
 - RustFS on `9004` and console `9005`.
 - Langfuse on `3005` and `8085`.
 
@@ -283,4 +283,3 @@ The compose file mounts persistent data under `volumes/` plus named volumes. Be 
 - TypeORM `synchronize` is enabled outside production. Schema changes can apply automatically in development.
 - Root `pnpm lint` and package lint scripts may modify files because they run ESLint with `--fix`.
 - `frontend/src/core/http.ts` defaults to `localhost:3000`; set `VITE_BACKEND_PORT` if backend uses `3001`.
-

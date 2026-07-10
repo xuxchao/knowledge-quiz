@@ -2,11 +2,14 @@ import { computed, shallowRef, watch } from 'vue';
 import { useChat } from '@ai-sdk/vue';
 import { DefaultChatTransport, type UIMessage } from 'ai';
 import http, { baseURL } from '@/core/http';
-import type { Conversation, Message, ApiResponse } from '@/types';
+import type { Conversation, DocumentReference, Message, ApiResponse } from '@/types';
 
 type ConversationDataParts = {
   'conversation-id': {
     conversationId: string;
+  };
+  citations: {
+    citations: DocumentReference[];
   };
 };
 
@@ -15,6 +18,8 @@ type ConversationUIMessage = UIMessage<unknown, ConversationDataParts>;
 export function useConversation() {
   const conversations = shallowRef<Conversation[]>([]);
   const currentConversation = shallowRef<Conversation | null>(null);
+  const isConversationLoading = shallowRef(false);
+  let selectionRequestId = 0;
 
   const {
     messages: aiMessages,
@@ -72,8 +77,29 @@ export function useConversation() {
   };
 
   const selectConversation = (conversation: Conversation): void => {
+    const requestId = ++selectionRequestId;
     currentConversation.value = conversation;
-    aiMessages.value = toUiMessages(conversation.messages || []);
+    aiMessages.value = [];
+    isConversationLoading.value = true;
+
+    void http
+      .get<ApiResponse<Conversation>>(`/api/conversations/get/${conversation.id}`)
+      .then((response) => {
+        if (requestId !== selectionRequestId) return;
+        const details = response.data.data;
+        currentConversation.value = details;
+        aiMessages.value = toUiMessages(details.messages || []);
+      })
+      .catch((error: unknown) => {
+        if (requestId !== selectionRequestId) return;
+        console.error('Failed to fetch conversation messages:', error);
+        aiMessages.value = [];
+      })
+      .finally(() => {
+        if (requestId === selectionRequestId) {
+          isConversationLoading.value = false;
+        }
+      });
   };
 
   const createNewConversation = (): void => {
@@ -86,6 +112,8 @@ export function useConversation() {
     };
     currentConversation.value = newConversation;
     aiMessages.value = [];
+    selectionRequestId += 1;
+    isConversationLoading.value = false;
   };
 
   const sendMessage = (messageText: string): void => {
@@ -99,8 +127,10 @@ export function useConversation() {
       await http.delete(`/api/conversations/delete/${conversationId}`);
       await fetchConversations();
       if (currentConversation.value?.id === conversationId) {
+        selectionRequestId += 1;
         currentConversation.value = null;
         aiMessages.value = [];
+        isConversationLoading.value = false;
       }
     } catch (error) {
       console.error('Failed to delete conversation:', error);
@@ -124,6 +154,7 @@ export function useConversation() {
     currentConversation,
     messages,
     isLoading,
+    isConversationLoading,
     fetchConversations,
     selectConversation,
     createNewConversation,
@@ -136,7 +167,12 @@ const toUiMessages = (savedMessages: Message[]): ConversationUIMessage[] =>
   savedMessages.map((message) => ({
     id: message.id,
     role: message.role,
-    parts: [{ type: 'text', text: message.content }],
+    parts: [
+      ...(message.references?.length
+        ? ([{ type: 'data-citations', data: { citations: message.references } }] as const)
+        : []),
+      { type: 'text', text: message.content } as const,
+    ],
   }));
 
 const toDisplayMessage = (message: ConversationUIMessage): Message => ({
@@ -146,5 +182,8 @@ const toDisplayMessage = (message: ConversationUIMessage): Message => ({
     .filter((part): part is { type: 'text'; text: string } => part.type === 'text')
     .map((part) => part.text)
     .join(''),
+  references: message.parts
+    .filter((part) => part.type === 'data-citations')
+    .flatMap((part) => part.data.citations),
   createdAt: new Date(),
 });

@@ -1,3 +1,4 @@
+import { StreamableFile } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigModule } from '@nestjs/config';
 import { DocumentController } from './document.controller';
@@ -20,6 +21,7 @@ describe('DocumentController', () => {
 
   const mockRustfsService = {
     uploadFile: jest.fn().mockResolvedValue('http://localhost:9004/documents/test-uuid/test.pdf'),
+    downloadFile: jest.fn().mockResolvedValue(Buffer.from('document content')),
     getBucket: jest.fn().mockReturnValue('documents'),
   };
 
@@ -42,6 +44,8 @@ describe('DocumentController', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockRustfsService.uploadFile.mockResolvedValue('http://localhost:9004/documents/test-uuid/test.pdf');
+    mockRustfsService.downloadFile.mockResolvedValue(Buffer.from('document content'));
     mockFileProcessorService.processFile.mockResolvedValue({
       text: 'test content',
       metadata: { numPages: 1, author: 'Test' },
@@ -250,6 +254,35 @@ describe('DocumentController', () => {
     });
   });
 
+  describe('downloadDocument', () => {
+    it('should download the original file with its title', async () => {
+      jest.spyOn(documentService, 'findById').mockResolvedValue({
+        id: 'doc-1',
+        name: '产品说明.pdf',
+        storageKey: 'doc-1/产品说明.pdf',
+      } as Document);
+      const response = { set: jest.fn() };
+
+      const result = await controller.downloadDocument('doc-1', response as never);
+
+      expect(result).toBeInstanceOf(StreamableFile);
+      expect(rustfsService.downloadFile).toHaveBeenCalledWith('doc-1/产品说明.pdf');
+      expect(response.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          'Content-Disposition': expect.stringContaining(encodeURIComponent('产品说明.pdf')),
+        }),
+      );
+    });
+
+    it('should reject documents without a stored file', async () => {
+      jest.spyOn(documentService, 'findById').mockResolvedValue({ id: 'doc-1', name: '网页' } as Document);
+
+      await expect(controller.downloadDocument('doc-1', { set: jest.fn() } as never)).rejects.toThrow(
+        'Document file not found',
+      );
+    });
+  });
+
   describe('uploadFile', () => {
     it('should upload and process PDF file successfully', async () => {
       const mockFile = {
@@ -289,9 +322,13 @@ describe('DocumentController', () => {
       });
       expect(documentService.create).toHaveBeenCalled();
       expect(rustfsService.uploadFile).toHaveBeenCalledWith('test-uuid/test.pdf', mockFile.buffer, mockFile.mimetype);
+      expect(documentService.update).toHaveBeenCalledWith(
+        'test-uuid',
+        expect.objectContaining({ storageKey: 'test-uuid/test.pdf' }),
+      );
       expect(fileProcessorService.processFile).toHaveBeenCalled();
       expect(fileProcessorService.splitText).toHaveBeenCalledWith('test content');
-      expect(fileProcessorService.storeChunks).toHaveBeenCalledWith('test-uuid', ['chunk1', 'chunk2']);
+      expect(fileProcessorService.storeChunks).toHaveBeenCalledWith('test-uuid', ['chunk1', 'chunk2'], 'test.pdf');
       expect(chunkService.createForDocument).toHaveBeenCalledWith('test-uuid', [
         expect.objectContaining({ content: 'chunk1', chunkIndex: 0, totalChunks: 2 }),
         expect.objectContaining({ content: 'chunk2', chunkIndex: 1, totalChunks: 2 }),

@@ -1,5 +1,19 @@
-import { Controller, Post, Get, Delete, Body, Param, Query, UploadedFile, UseInterceptors } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  NotFoundException,
+  Param,
+  Post,
+  Query,
+  Res,
+  StreamableFile,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import { DocumentService } from './document.service';
 import { ChunkService } from './chunk.service';
 import { FileProcessorService } from '../infrastructure/file-processor/file-processor.service';
@@ -92,6 +106,7 @@ export class DocumentController {
 
       await this.documentService.update(document.id, {
         path: rustfsUrl,
+        storageKey: rustfsKey,
       });
     } else {
       throw new Error('No file or URL provided');
@@ -109,7 +124,7 @@ export class DocumentController {
       });
 
       const chunks = await this.fileProcessorService.splitText(text);
-      const enrichedChunks = await this.fileProcessorService.storeChunks(document.id, chunks);
+      const enrichedChunks = await this.fileProcessorService.storeChunks(document.id, chunks, document.name);
       await this.chunkService.createForDocument(document.id, enrichedChunks);
 
       await this.documentService.update(document.id, {
@@ -180,6 +195,39 @@ export class DocumentController {
     };
   }
 
+  @Get(':id/download')
+  async downloadDocument(
+    @Param('id') id: string,
+    @Res({ passthrough: true }) response: Response,
+  ): Promise<StreamableFile> {
+    this.logger.debug(`请求进入 - 下载文档，ID: ${id}`);
+    try {
+      const document = await this.documentService.findById(id, false);
+      if (!document?.storageKey) {
+        this.logger.warn(`可下载文档未找到 - ID: ${id}`);
+        throw new NotFoundException('Document file not found');
+      }
+
+      const file = await this.rustfsService.downloadFile(document.storageKey);
+      response.set({
+        'Content-Type': 'application/octet-stream',
+        'Content-Length': file.length.toString(),
+        'Content-Disposition': `attachment; filename="document"; filename*=UTF-8''${this.encodeHeaderValue(document.name)}`,
+      });
+
+      this.logger.info(`请求成功 - 下载文档完成，ID: ${id}, 文件名: ${document.name}`);
+      return new StreamableFile(file);
+    } catch (error: unknown) {
+      if (error instanceof NotFoundException) {
+        throw error;
+      }
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const stackTrace = error instanceof Error ? error.stack : undefined;
+      this.logger.error(`请求处理异常 - 下载文档失败，ID: ${id}，错误: ${errorMessage}`, stackTrace);
+      throw error;
+    }
+  }
+
   @Delete(':id')
   async deleteDocument(@Param('id') id: string) {
     this.logger.debug(`请求进入 - 删除文档，ID: ${id}`);
@@ -211,5 +259,12 @@ export class DocumentController {
     }
 
     return decoded;
+  }
+
+  private encodeHeaderValue(value: string): string {
+    return encodeURIComponent(value).replace(
+      /[!'()*]/g,
+      (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+    );
   }
 }

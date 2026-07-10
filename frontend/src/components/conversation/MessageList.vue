@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { ref, watch, nextTick } from 'vue';
-import { MessageSquare, Play } from 'lucide-vue-next';
+import { nextTick, useTemplateRef, watch } from 'vue';
+import { MessageSquare, Pause, Play } from 'lucide-vue-next';
 import MarkdownIt from 'markdown-it';
+import { useSpeechSynthesis } from '@/composables/useSpeechSynthesis';
 import type { Message } from '@/types';
 
 const props = defineProps<{
@@ -10,7 +11,15 @@ const props = defineProps<{
 }>();
 
 const md = new MarkdownIt({ html: false });
-const containerRef = ref<HTMLElement | null>(null);
+const containerRef = useTemplateRef<HTMLElement>('messageContainer');
+const {
+  isSupported: isSpeechSupported,
+  toggle: toggleSpeech,
+  isPlaying,
+  buttonLabel,
+} = useSpeechSynthesis();
+
+const messageKey = (message: Message, index: number): string => message.id || `message-${index}`;
 
 const scrollToBottom = async (): Promise<void> => {
   await nextTick();
@@ -32,18 +41,10 @@ watch(
     void scrollToBottom();
   },
 );
-
-const speakText = (text: string): void => {
-  if ('speechSynthesis' in window) {
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'zh-CN';
-    speechSynthesis.speak(utterance);
-  }
-};
 </script>
 
 <template>
-  <div ref="containerRef" class="flex-1 overflow-y-auto p-6">
+  <div ref="messageContainer" class="flex-1 overflow-y-auto p-6">
     <div class="max-w-3xl mx-auto space-y-6">
       <div
         v-for="(msg, index) in messages"
@@ -61,10 +62,14 @@ const speakText = (text: string): void => {
           <div v-if="msg.role === 'assistant'" class="flex items-center justify-between mb-2">
             <span class="text-sm font-medium text-gray-500">AI 助手</span>
             <button
+              v-if="isSpeechSupported"
               class="p-1 hover:bg-gray-200 rounded transition-colors"
-              @click="speakText(msg.content)"
+              :aria-label="buttonLabel(messageKey(msg, index))"
+              :title="buttonLabel(messageKey(msg, index))"
+              @click="toggleSpeech(messageKey(msg, index), msg.content)"
             >
-              <Play class="w-4 h-4 text-gray-500" />
+              <Pause v-if="isPlaying(messageKey(msg, index))" class="w-4 h-4 text-gray-500" />
+              <Play v-else class="w-4 h-4 text-gray-500" />
             </button>
           </div>
           <div v-if="msg.role === 'user'" class="text-sm font-medium text-blue-100 mb-2">用户</div>

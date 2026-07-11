@@ -135,10 +135,7 @@ services:
         condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password}@postgres:5432/${LANGFUSE_DB:-langfuse}
-      - REDIS_URL=redis://redis:6379
-      - REDIS_CONNECTION_STRING=redis://redis:6379
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - REDIS_CONNECTION_STRING=redis://redis:6379/${LANGFUSE_REDIS_DB:-1}
       - CLICKHOUSE_URL=http://${CLICKHOUSE_USER:-default}:${CLICKHOUSE_PASSWORD:-langfuse123}@clickhouse:8123/${CLICKHOUSE_DB:-langfuse}
       - CLICKHOUSE_MIGRATION_URL=clickhouse://${CLICKHOUSE_USER:-default}:${CLICKHOUSE_PASSWORD:-langfuse123}@clickhouse:9000/${CLICKHOUSE_DB:-langfuse}
       - CLICKHOUSE_USER=${CLICKHOUSE_USER:-default}
@@ -180,6 +177,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - REDIS_DB=${REDIS_DB:-0}
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=${NEO4J_USER:-neo4j}
       - NEO4J_PASSWORD=${NEO4J_PASSWORD:-password}

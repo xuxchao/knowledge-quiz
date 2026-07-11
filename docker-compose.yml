@@ -196,10 +196,7 @@ services:
         condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password}@postgres:5432/${LANGFUSE_DB:-langfuse}
-      - REDIS_URL=redis://redis:6379
-      - REDIS_CONNECTION_STRING=redis://redis:6379
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - REDIS_CONNECTION_STRING=redis://redis:6379/${LANGFUSE_REDIS_DB:-1}
       - CLICKHOUSE_URL=http://default:${CLICKHOUSE_PASSWORD:-langfuse123}@clickhouse:8123/langfuse
       - CLICKHOUSE_MIGRATION_URL=clickhouse://default:${CLICKHOUSE_PASSWORD:-langfuse123}@clickhouse:9000
       - CLICKHOUSE_USER=default
@@ -242,10 +239,7 @@ services:
         condition: service_completed_successfully
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-admin}:${POSTGRES_PASSWORD:-password}@postgres:5432/${LANGFUSE_DB:-langfuse}
-      - REDIS_URL=redis://redis:6379
-      - REDIS_CONNECTION_STRING=redis://redis:6379
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - REDIS_CONNECTION_STRING=redis://redis:6379/${LANGFUSE_REDIS_DB:-1}
       - CLICKHOUSE_URL=http://default:${CLICKHOUSE_PASSWORD:-langfuse123}@clickhouse:8123/langfuse
       - CLICKHOUSE_USER=default
       - CLICKHOUSE_PASSWORD=${CLICKHOUSE_PASSWORD:-langfuse123}

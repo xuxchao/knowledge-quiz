@@ -14,10 +14,16 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     const host = this.configService.get<string>('REDIS_HOST', 'localhost');
     const port = this.configService.get<number>('REDIS_PORT', 6379);
     const password = this.configService.get<string>('REDIS_PASSWORD');
+    const database = Number(this.configService.get<string>('REDIS_DB', '0'));
+
+    if (!Number.isInteger(database) || database < 0) {
+      throw new Error('REDIS_DB 必须是非负整数');
+    }
 
     this.client = createClient({
       url: `redis://${host}:${port}`,
       password: password || undefined,
+      database,
     });
 
     await this.client.connect();

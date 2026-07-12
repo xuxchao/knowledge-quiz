@@ -6,7 +6,7 @@ import { LoggerService, LogServiceCall } from '../../common/logger';
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new LoggerService(RedisService.name);
-  private client: RedisClientType;
+  private client!: RedisClientType;
 
   constructor(private configService: ConfigService) {}
 
@@ -24,6 +24,22 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       url: `redis://${host}:${port}`,
       password: password || undefined,
       database,
+      socket: {
+        // 连接被重置时自动重连，避免 ECONNRESET 直接崩溃进程
+        reconnectStrategy: (retries: number) => {
+          if (retries > 10) {
+            this.logger.error('Redis重连次数过多，放弃重连');
+            return new Error('Redis重连次数过多');
+          }
+          this.logger.warn(`Redis连接断开，第${retries}次重连...`);
+          return Math.min(retries * 200, 2000);
+        },
+      },
+    });
+
+    // 必须注册 error 事件监听器，否则未捕获的 error 事件会导致进程崩溃
+    this.client.on('error', (err: Error) => {
+      this.logger.error(`Redis客户端错误: ${err.message}`);
     });
 
     await this.client.connect();
@@ -89,7 +105,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     return this.client.lRange(key, start, end);
   }
 
-  @LogServiceCall()
+  // @LogServiceCall()
   async rpop(key: string): Promise<string | null> {
     return this.client.rPop(key);
   }

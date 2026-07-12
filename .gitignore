@@ -54,3 +54,6 @@ junit.xml
 
 volumes/
 test-file/
+
+.workbuddy/
+file-conversion-demos/

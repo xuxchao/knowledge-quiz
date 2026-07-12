@@ -1,4 +1,5 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, Index } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { Document } from './document.entity';
 
 @Entity('chunks')
@@ -10,7 +11,7 @@ export class Chunk {
   @ManyToOne(() => Document, (document) => document.chunks, {
     onDelete: 'CASCADE',
   })
-  document: Document;
+  document: Relation<Document>;
 
   @Column({ type: 'varchar' })
   documentId: string;

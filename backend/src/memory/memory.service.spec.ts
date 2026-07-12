@@ -19,9 +19,11 @@ describe('MemoryService', () => {
             lpush: jest.fn().mockImplementation(async (key: string, value: string) => {
               lists.set(key, [value, ...(lists.get(key) || [])]);
             }),
-            lrange: jest.fn().mockImplementation(async (key: string, start: number, end: number) =>
-              (lists.get(key) || []).slice(start, end + 1),
-            ),
+            lrange: jest
+              .fn()
+              .mockImplementation(async (key: string, start: number, end: number) =>
+                (lists.get(key) || []).slice(start, end + 1),
+              ),
             ltrim: jest.fn().mockImplementation(async (key: string, start: number, end: number) => {
               lists.set(key, (lists.get(key) || []).slice(start, end + 1));
             }),

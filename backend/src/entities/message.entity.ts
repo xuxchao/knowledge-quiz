@@ -1,4 +1,5 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, Index } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { Conversation } from './conversation.entity';
 
 export enum MessageRole {
@@ -25,7 +26,7 @@ export class Message {
   @ManyToOne(() => Conversation, (conversation) => conversation.messages, {
     onDelete: 'CASCADE',
   })
-  conversation: Conversation;
+  conversation: Relation<Conversation>;
 
   @Column({ type: 'varchar' })
   conversationId: string;

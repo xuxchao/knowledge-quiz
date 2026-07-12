@@ -1,4 +1,5 @@
 import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm';
+import type { Relation } from 'typeorm';
 import { Chunk } from './chunk.entity';
 
 export enum FileType {
@@ -73,5 +74,5 @@ export class Document {
   updatedAt: Date;
 
   @OneToMany(() => Chunk, (chunk) => chunk.document)
-  chunks: Chunk[];
+  chunks: Relation<Chunk[]>;
 }

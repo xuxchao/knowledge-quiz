@@ -2,4 +2,5 @@ packages:
   - 'backend'
   - 'frontend'
 allowBuilds:
+  '@swc/core': true
   protobufjs: true

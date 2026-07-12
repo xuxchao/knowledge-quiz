@@ -1,4 +1,4 @@
-import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne } from 'typeorm';
+import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, Index } from 'typeorm';
 import { Conversation } from './conversation.entity';
 
 export enum MessageRole {
@@ -17,6 +17,7 @@ export interface DocumentReference {
 }
 
 @Entity('messages')
+@Index('IDX_messages_conversation_created', ['conversationId', 'createdAt'])
 export class Message {
   @PrimaryGeneratedColumn('uuid')
   id: string;

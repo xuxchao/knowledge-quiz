@@ -1,8 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { Chunk } from '../entities/chunk.entity';
+import { Document } from '../entities/document.entity';
 import { LoggerService, LogServiceCall } from '../common/logger';
+import { AiService } from '../ai/ai.service';
+import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
 
 @Injectable()
 export class ChunkService {
@@ -11,6 +14,9 @@ export class ChunkService {
   constructor(
     @InjectRepository(Chunk)
     private chunkRepository: Repository<Chunk>,
+    private dataSource: DataSource,
+    private aiService: AiService,
+    private neo4jService: Neo4jService,
   ) {}
 
   @LogServiceCall()
@@ -60,17 +66,63 @@ export class ChunkService {
       }),
     );
 
-    return this.chunkRepository.save(chunkEntities);
+    const saved = await this.chunkRepository.save(chunkEntities);
+    await this.neo4jService.deleteByDocumentId(documentId);
+    await this.neo4jService.addDocumentsBatch(
+      saved.map((chunk) => ({
+        content: chunk.content,
+        metadata: { ...(chunk.metadata || {}), chunkId: chunk.id, documentId },
+      })),
+      saved.map((chunk) => JSON.parse(chunk.embedding || '[]') as number[]),
+    );
+    return saved;
   }
 
   @LogServiceCall()
-  async update(id: string, data: Record<string, unknown>): Promise<Chunk | null> {
-    await this.chunkRepository.update(id, data);
-    return this.findById(id);
+  async updateContent(id: string, content: string): Promise<Chunk | null> {
+    const [embedding] = await this.aiService.generateEmbeddings([content]);
+
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(Chunk);
+      const chunk = await repository.findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
+      if (!chunk) return null;
+
+      chunk.content = content;
+      chunk.contentSearch = content;
+      chunk.tokenCount = content.length;
+      chunk.embedding = JSON.stringify(embedding);
+      const saved = await repository.save(chunk);
+      await this.neo4jService.addDocuments(
+        [{ content, metadata: { ...(chunk.metadata || {}), chunkId: chunk.id, documentId: chunk.documentId } }],
+        [embedding],
+      );
+      return saved;
+    });
   }
 
   @LogServiceCall()
-  async delete(id: string): Promise<void> {
-    await this.chunkRepository.delete(id);
+  async delete(id: string): Promise<boolean> {
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(Chunk);
+      const chunk = await repository.findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
+      if (!chunk) return false;
+
+      await this.neo4jService.deleteByChunkId(id);
+      await repository.delete(id);
+      await manager
+        .createQueryBuilder()
+        .update(Document)
+        .set({ chunkCount: () => 'GREATEST("chunkCount" - 1, 0)' })
+        .where('id = :documentId', { documentId: chunk.documentId })
+        .execute();
+      return true;
+    });
+  }
+
+  @LogServiceCall()
+  async cleanupDocument(documentId: string): Promise<void> {
+    await this.neo4jService.deleteByDocumentId(documentId);
+    await this.chunkRepository.delete({ documentId });
+    await this.dataSource.getRepository(Document).update(documentId, { chunkCount: 0 });
   }
 }

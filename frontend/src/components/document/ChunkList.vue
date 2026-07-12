@@ -55,7 +55,7 @@ const handleInput = (event: Event): void => {
       <div v-for="chunk in chunks" :key="chunk.id" class="border border-gray-200 rounded-lg p-4">
         <div class="flex items-center justify-between mb-2">
           <span class="text-sm font-medium text-gray-700">
-            切片 {{ chunk.chunkIndex + 1 }} / {{ chunk.totalChunks }}
+            切片 {{ chunk.chunkIndex + 1 }} / {{ document.chunkCount }}
           </span>
           <div class="flex space-x-2">
             <button

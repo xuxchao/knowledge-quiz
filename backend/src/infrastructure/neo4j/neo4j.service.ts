@@ -59,17 +59,17 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     const session = this.driver.session();
     try {
-      for (let i = 0; i < documents.length; i++) {
-        await session.run(
-          `
-          CREATE (c:DocumentChunk)
-          SET c += $properties
+      const rows = documents.map((document, index) => ({
+        properties: this.buildDocumentChunkProperties(document, embeddings[index]),
+      }));
+      await session.run(
+        `
+        UNWIND $rows AS row
+        MERGE (c:DocumentChunk { chunkId: row.properties.chunkId })
+        SET c = row.properties
         `,
-          {
-            properties: this.buildDocumentChunkProperties(documents[i], embeddings[i]),
-          },
-        );
-      }
+        { rows },
+      );
     } finally {
       await session.close();
     }
@@ -130,6 +130,16 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
       `,
         { documentId },
       );
+    } finally {
+      await session.close();
+    }
+  }
+
+  @LogServiceCall()
+  async deleteByChunkId(chunkId: string): Promise<void> {
+    const session = this.driver.session();
+    try {
+      await session.run('MATCH (c:DocumentChunk { chunkId: $chunkId }) DELETE c', { chunkId });
     } finally {
       await session.close();
     }

@@ -4,6 +4,11 @@ import type { Document, Chunk, ApiResponse, TabType } from '@/types';
 
 interface UploadResponse {
   success: boolean;
+  data: {
+    documentId: string;
+    jobId: string;
+    status: Document['status'];
+  };
 }
 
 export function useDocument() {
@@ -120,7 +125,7 @@ export function useDocument() {
       });
 
       if (response.data.success) {
-        alert('文件上传成功');
+        alert('文件已提交，正在后台处理');
         uploadFile.value = null;
         activeTab.value = 'files';
         void fetchDocuments();
@@ -146,7 +151,7 @@ export function useDocument() {
       });
 
       if (response.data.success) {
-        alert('URL 处理成功');
+        alert('URL 已提交，正在后台处理');
         urlInput.value = '';
         activeTab.value = 'files';
         void fetchDocuments();
@@ -171,10 +176,11 @@ export function useDocument() {
 
   const formatStatus = (status: string): string => {
     const statusMap: Record<string, string> = {
-      UPLOADING: '上传中',
-      PROCESSING: '处理中',
-      PROCESSED: '已处理',
-      FAILED: '失败',
+      uploading: '上传中',
+      processing: '处理中',
+      processed: '已处理',
+      completed: '已完成',
+      failed: '失败',
     };
     return statusMap[status] || status;
   };

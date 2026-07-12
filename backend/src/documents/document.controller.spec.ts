@@ -11,6 +11,8 @@ import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
 import { RustfsService } from '../infrastructure/rustfs/rustfs.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Document, FileType, DocumentStatus } from '../entities/document.entity';
+import { DocumentIngestionService } from './document-ingestion.service';
+import { RedisService } from '../infrastructure/redis/redis.service';
 
 describe('DocumentController', () => {
   let controller: DocumentController;
@@ -41,9 +43,11 @@ describe('DocumentController', () => {
   const mockChunkService = {
     createForDocument: jest.fn(),
   };
+  const mockIngestionService = { enqueue: jest.fn().mockResolvedValue('job-1') };
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockIngestionService.enqueue.mockResolvedValue('job-1');
     mockRustfsService.uploadFile.mockResolvedValue('http://localhost:9004/documents/test-uuid/test.pdf');
     mockRustfsService.downloadFile.mockResolvedValue(Buffer.from('document content'));
     mockFileProcessorService.processFile.mockResolvedValue({
@@ -101,6 +105,8 @@ describe('DocumentController', () => {
           provide: RustfsService,
           useValue: mockRustfsService,
         },
+        { provide: DocumentIngestionService, useValue: mockIngestionService },
+        { provide: RedisService, useValue: { lpush: jest.fn().mockResolvedValue(undefined) } },
         {
           provide: getRepositoryToken(Document),
           useValue: {
@@ -156,7 +162,7 @@ describe('DocumentController', () => {
 
       jest.spyOn(documentService, 'findAll').mockResolvedValue([mockDocuments, mockCount]);
 
-      const result = await controller.listDocuments('', 1, 10);
+      const result = await controller.listDocuments({ name: '', page: 1, limit: 10 });
 
       expect(result).toEqual({
         success: true,
@@ -174,7 +180,7 @@ describe('DocumentController', () => {
     it('should filter documents by name', async () => {
       jest.spyOn(documentService, 'findAll').mockResolvedValue([[], 0]);
 
-      await controller.listDocuments('test', 1, 10);
+      await controller.listDocuments({ name: 'test', page: 1, limit: 10 });
 
       expect(documentService.findAll).toHaveBeenCalledWith('test', 0, 10);
     });
@@ -182,7 +188,7 @@ describe('DocumentController', () => {
     it('should handle page 0 by defaulting to page 1', async () => {
       jest.spyOn(documentService, 'findAll').mockResolvedValue([[], 0]);
 
-      await controller.listDocuments('', 0, 10);
+      await controller.listDocuments({ name: '', page: 0, limit: 10 });
 
       expect(documentService.findAll).toHaveBeenCalledWith('', 0, 10);
     });
@@ -190,7 +196,7 @@ describe('DocumentController', () => {
     it('should handle negative page by defaulting to page 1', async () => {
       jest.spyOn(documentService, 'findAll').mockResolvedValue([[], 0]);
 
-      await controller.listDocuments('', -1, 10);
+      await controller.listDocuments({ name: '', page: -1, limit: 10 });
 
       expect(documentService.findAll).toHaveBeenCalledWith('', 0, 10);
     });
@@ -284,7 +290,7 @@ describe('DocumentController', () => {
   });
 
   describe('uploadFile', () => {
-    it('should upload and process PDF file successfully', async () => {
+    it('should store a file, enqueue ingestion and return a job id', async () => {
       const mockFile = {
         originalname: 'test.pdf',
         buffer: Buffer.from('test content'),
@@ -302,23 +308,11 @@ describe('DocumentController', () => {
 
       jest.spyOn(documentService, 'create').mockResolvedValue(mockCreateResult);
       jest.spyOn(documentService, 'update').mockResolvedValue(mockCreateResult);
-      jest.spyOn(documentService, 'findById').mockResolvedValue({
-        ...mockCreateResult,
-        status: DocumentStatus.PROCESSED,
-        chunkCount: 2,
-        chunks: [],
-      });
-
       const result = await controller.uploadFile(mockFile, {});
 
       expect(result).toEqual({
         success: true,
-        data: expect.objectContaining({
-          id: 'test-uuid',
-          name: 'test.pdf',
-          status: DocumentStatus.PROCESSED,
-          chunkCount: 2,
-        }),
+        data: { documentId: 'test-uuid', jobId: 'job-1', status: DocumentStatus.PROCESSING },
       });
       expect(documentService.create).toHaveBeenCalled();
       expect(rustfsService.uploadFile).toHaveBeenCalledWith('test-uuid/test.pdf', mockFile.buffer, mockFile.mimetype);
@@ -326,13 +320,11 @@ describe('DocumentController', () => {
         'test-uuid',
         expect.objectContaining({ storageKey: 'test-uuid/test.pdf' }),
       );
-      expect(fileProcessorService.processFile).toHaveBeenCalled();
-      expect(fileProcessorService.splitText).toHaveBeenCalledWith('test content');
-      expect(fileProcessorService.storeChunks).toHaveBeenCalledWith('test-uuid', ['chunk1', 'chunk2'], 'test.pdf');
-      expect(chunkService.createForDocument).toHaveBeenCalledWith('test-uuid', [
-        expect.objectContaining({ content: 'chunk1', chunkIndex: 0, totalChunks: 2 }),
-        expect.objectContaining({ content: 'chunk2', chunkIndex: 1, totalChunks: 2 }),
-      ]);
+      expect(mockIngestionService.enqueue).toHaveBeenCalledWith(
+        'test-uuid',
+        'http://localhost:9004/documents/test-uuid/test.pdf',
+        'test.pdf',
+      );
     });
 
     it('should preserve Chinese file names when uploading', async () => {
@@ -409,25 +401,6 @@ describe('DocumentController', () => {
       await expect(controller.uploadFile(null, {})).rejects.toThrow('No file or URL provided');
     });
 
-    it('should handle file processing failure', async () => {
-      const mockFile = {
-        originalname: 'test.pdf',
-        buffer: Buffer.from('test content'),
-        mimetype: 'application/pdf',
-        size: 1000,
-      } as Express.Multer.File;
-
-      jest.spyOn(documentService, 'create').mockResolvedValue({
-        id: 'test-uuid',
-        name: 'test.pdf',
-        type: FileType.PDF,
-        status: DocumentStatus.PROCESSING,
-      } as Document);
-      jest.spyOn(fileProcessorService, 'processFile').mockRejectedValue(new Error('Processing failed'));
-
-      await expect(controller.uploadFile(mockFile, {})).rejects.toThrow('File processing failed: Processing failed');
-    });
-
     it('should handle URL upload', async () => {
       const mockCreateResult = {
         id: 'test-uuid',
@@ -438,110 +411,20 @@ describe('DocumentController', () => {
       } as Document;
 
       jest.spyOn(documentService, 'create').mockResolvedValue(mockCreateResult);
-      jest.spyOn(documentService, 'update').mockResolvedValue(mockCreateResult);
-      jest.spyOn(documentService, 'findById').mockResolvedValue({
-        ...mockCreateResult,
-        status: DocumentStatus.PROCESSED,
-        chunkCount: 2,
-        chunks: [],
-      });
-
       const result = await controller.uploadFile(null, {
         url: 'https://example.com/doc.pdf',
       });
 
       expect(result).toEqual({
         success: true,
-        data: expect.objectContaining({
-          id: 'test-uuid',
-          type: FileType.URL,
-          status: DocumentStatus.PROCESSED,
-        }),
+        data: { documentId: 'test-uuid', jobId: 'job-1', status: DocumentStatus.PROCESSING },
       });
       expect(rustfsService.uploadFile).not.toHaveBeenCalled();
-      expect(fileProcessorService.processFile).toHaveBeenCalled();
-    });
-
-    it('should handle unknown file type', async () => {
-      const mockFile = {
-        originalname: 'test.unknown',
-        buffer: Buffer.from('test content'),
-        mimetype: 'application/octet-stream',
-        size: 1000,
-      } as Express.Multer.File;
-
-      jest.spyOn(documentService, 'create').mockResolvedValue({
-        id: 'test-uuid',
-        name: 'test.unknown',
-        type: FileType.TXT,
-        status: DocumentStatus.PROCESSING,
-      } as Document);
-      jest.spyOn(documentService, 'update').mockResolvedValue({
-        id: 'test-uuid',
-        name: 'test.unknown',
-        type: FileType.TXT,
-        status: DocumentStatus.PROCESSED,
-        chunkCount: 2,
-        chunks: [],
-      } as Document);
-      jest.spyOn(documentService, 'findById').mockResolvedValue({
-        id: 'test-uuid',
-        name: 'test.unknown',
-        type: FileType.TXT,
-        status: DocumentStatus.PROCESSED,
-        chunkCount: 2,
-        chunks: [],
-      } as Document);
-
-      const result = await controller.uploadFile(mockFile, {});
-
-      expect(result.success).toBe(true);
-      expect(result.data.type).toBe(FileType.TXT);
-    });
-
-    it('should handle empty file', async () => {
-      const mockFile = {
-        originalname: 'empty.pdf',
-        buffer: Buffer.from(''),
-        mimetype: 'application/pdf',
-        size: 0,
-      } as Express.Multer.File;
-
-      jest.spyOn(documentService, 'create').mockResolvedValue({
-        id: 'test-uuid',
-        name: 'empty.pdf',
-        type: FileType.PDF,
-        status: DocumentStatus.PROCESSING,
-        fileSize: 0,
-      } as Document);
-      jest.spyOn(fileProcessorService, 'processFile').mockResolvedValue({
-        text: '',
-        metadata: {},
-      });
-      jest.spyOn(fileProcessorService, 'splitText').mockResolvedValue([]);
-      jest.spyOn(fileProcessorService, 'storeChunks').mockResolvedValue([]);
-      jest.spyOn(documentService, 'update').mockResolvedValue({
-        id: 'test-uuid',
-        name: 'empty.pdf',
-        type: FileType.PDF,
-        status: DocumentStatus.PROCESSED,
-        chunkCount: 0,
-        chunks: [],
-      } as Document);
-      jest.spyOn(documentService, 'findById').mockResolvedValue({
-        id: 'test-uuid',
-        name: 'empty.pdf',
-        type: FileType.PDF,
-        status: DocumentStatus.PROCESSED,
-        chunkCount: 0,
-        chunks: [],
-      } as Document);
-
-      const result = await controller.uploadFile(mockFile, {});
-
-      expect(result.success).toBe(true);
-      expect(result.data.chunkCount).toBe(0);
-      expect(chunkService.createForDocument).toHaveBeenCalledWith('test-uuid', []);
+      expect(mockIngestionService.enqueue).toHaveBeenCalledWith(
+        'test-uuid',
+        'https://example.com/doc.pdf',
+        'https://example.com/doc.pdf',
+      );
     });
   });
 });

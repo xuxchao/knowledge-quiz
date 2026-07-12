@@ -46,36 +46,39 @@ describe('ConversationController', () => {
         { id: '2', messages: [] },
       ];
 
-      jest.spyOn(conversationService, 'findAll').mockResolvedValue(mockConversations);
+      jest.spyOn(conversationService, 'findAll').mockResolvedValue([mockConversations, 2]);
 
-      const result = await controller.listConversations('user-1');
+      const result = await controller.listConversations({ userId: 'user-1', page: 1, limit: 20 });
 
       expect(result).toEqual({
         success: true,
         data: mockConversations,
+        pagination: { page: 1, limit: 20, total: 2, pages: 1 },
       });
-      expect(conversationService.findAll).toHaveBeenCalledWith('user-1');
+      expect(conversationService.findAll).toHaveBeenCalledWith('user-1', 0, 20);
     });
 
     it('should return empty list if no conversations', async () => {
-      jest.spyOn(conversationService, 'findAll').mockResolvedValue([]);
+      jest.spyOn(conversationService, 'findAll').mockResolvedValue([[], 0]);
 
-      const result = await controller.listConversations('user-1');
+      const result = await controller.listConversations({ userId: 'user-1', page: 1, limit: 20 });
 
       expect(result).toEqual({
         success: true,
         data: [],
+        pagination: { page: 1, limit: 20, total: 0, pages: 0 },
       });
     });
 
     it('should handle empty user id', async () => {
-      jest.spyOn(conversationService, 'findAll').mockResolvedValue([]);
+      jest.spyOn(conversationService, 'findAll').mockResolvedValue([[], 0]);
 
-      const result = await controller.listConversations('');
+      const result = await controller.listConversations({ userId: '', page: 1, limit: 20 });
 
       expect(result).toEqual({
         success: true,
         data: [],
+        pagination: { page: 1, limit: 20, total: 0, pages: 0 },
       });
     });
   });
@@ -99,7 +102,7 @@ describe('ConversationController', () => {
         data: mockConversation,
       });
       expect(result.data.messages).toHaveLength(2);
-      expect(conversationService.findById).toHaveBeenCalledWith('1');
+      expect(conversationService.findById).toHaveBeenCalledWith('1', 0, 100);
     });
 
     it('should throw error if conversation not found', async () => {

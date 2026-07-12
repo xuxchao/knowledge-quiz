@@ -23,16 +23,16 @@ export class ConversationService {
   }
 
   @LogServiceCall()
-  async findById(id: string): Promise<Conversation | null> {
+  async findById(id: string, messageSkip: number = 0, messageLimit: number = 100): Promise<Conversation | null> {
     const conversation = await this.conversationRepository.findOne({ where: { id } });
     if (!conversation) return null;
 
-    conversation.messages = await this.getMessages(id);
+    conversation.messages = await this.getMessages(id, messageSkip, messageLimit);
     return conversation;
   }
 
   @LogServiceCall()
-  async findAll(userId?: string): Promise<Conversation[]> {
+  async findAll(userId?: string, skip: number = 0, limit: number = 20): Promise<[Conversation[], number]> {
     const query = this.conversationRepository.createQueryBuilder('conversation');
 
     if (userId) {
@@ -40,8 +40,9 @@ export class ConversationService {
     }
 
     query.orderBy('conversation.updatedAt', 'DESC');
+    query.skip(skip).take(limit);
 
-    return query.getMany();
+    return query.getManyAndCount();
   }
 
   @LogServiceCall()
@@ -80,10 +81,12 @@ export class ConversationService {
   }
 
   @LogServiceCall()
-  async getMessages(conversationId: string): Promise<Message[]> {
+  async getMessages(conversationId: string, skip: number = 0, limit: number = 100): Promise<Message[]> {
     return this.messageRepository.find({
       where: { conversationId },
       order: { createdAt: 'ASC' },
+      skip,
+      take: limit,
     });
   }
 }

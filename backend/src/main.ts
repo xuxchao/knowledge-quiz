@@ -4,6 +4,8 @@ import { AppModule } from './app.module';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LoggerService } from './common/logger';
+import { randomUUID } from 'node:crypto';
+import { requestContext } from './common/logger/request-context';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -14,6 +16,20 @@ async function bootstrap() {
 
   app.enableCors();
   app.setGlobalPrefix('api');
+  app.use(
+    (
+      request: { headers: Record<string, string | string[] | undefined> },
+      response: { setHeader: (name: string, value: string) => void },
+      next: () => void,
+    ) => {
+      const header = request.headers['x-request-id'];
+      const requestId = (Array.isArray(header) ? header[0] : header) || randomUUID();
+      const traceHeader = request.headers['x-trace-id'];
+      const traceId = (Array.isArray(traceHeader) ? traceHeader[0] : traceHeader) || requestId;
+      response.setHeader('x-request-id', requestId);
+      requestContext.run({ requestId, traceId }, next);
+    },
+  );
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.useGlobalFilters(new HttpExceptionFilter(), new AllExceptionsFilter());
 

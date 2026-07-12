@@ -154,7 +154,7 @@ ${memoryContext}
     try {
       await this.conversationService.createMessage(conversationId, MessageRole.ASSISTANT, fullResponse, citations);
       await this.memoryService.saveShortTermMemory(conversationId, fullResponse);
-      this.memoryService.saveLongTermMemory(userId, fullResponse);
+      await this.memoryService.saveLongTermMemory(userId, fullResponse);
       this.logger.info(`对话完成 - 会话ID: ${conversationId}, 响应长度: ${fullResponse.length}`);
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);

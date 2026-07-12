@@ -5,14 +5,12 @@ import { FileProcessorService } from './file-processor.service';
 import { FileType } from '../../entities/document.entity';
 import { AiService } from '../../ai/ai.service';
 import { SpeechService } from '../speech/speech.service';
-import { Neo4jService } from '../neo4j/neo4j.service';
 import { RustfsService } from '../rustfs/rustfs.service';
 
 describe('FileProcessorService', () => {
   let service: FileProcessorService;
   let aiService: jest.Mocked<Record<string, jest.Mock>>;
   let speechService: jest.Mocked<Record<string, jest.Mock>>;
-  let neo4jService: jest.Mocked<Record<string, jest.Mock>>;
   let rustfsService: jest.Mocked<Record<string, jest.Mock>>;
 
   const testTxtPath = path.join(process.cwd(), 'test.txt');
@@ -39,10 +37,6 @@ describe('FileProcessorService', () => {
       speechToText: jest.fn().mockResolvedValue('Transcribed text'),
     };
 
-    neo4jService = {
-      addDocuments: jest.fn().mockResolvedValue(),
-    };
-
     rustfsService = {
       getBucket: jest.fn().mockReturnValue('documents'),
       downloadFile: jest.fn().mockResolvedValue(Buffer.from('test content')),
@@ -53,7 +47,6 @@ describe('FileProcessorService', () => {
         FileProcessorService,
         { provide: AiService, useValue: aiService },
         { provide: SpeechService, useValue: speechService },
-        { provide: Neo4jService, useValue: neo4jService },
         { provide: RustfsService, useValue: rustfsService },
       ],
     }).compile();
@@ -142,26 +135,13 @@ describe('FileProcessorService', () => {
       await service.storeChunks('doc-1', chunks);
 
       expect(aiService.generateEmbeddings).toHaveBeenCalledWith(chunks);
-      expect(neo4jService.addDocuments).toHaveBeenCalledWith(
-        [
-          {
-            content: 'chunk1',
-            metadata: { documentId: 'doc-1', documentName: 'doc-1', chunkIndex: 0, totalChunks: 2 },
-          },
-          {
-            content: 'chunk2',
-            metadata: { documentId: 'doc-1', documentName: 'doc-1', chunkIndex: 1, totalChunks: 2 },
-          },
-        ],
-        embeddings,
-      );
+      await expect(service.storeChunks('doc-1', chunks)).resolves.toHaveLength(2);
     });
 
     it('should handle empty chunks', async () => {
       await service.storeChunks('doc-1', []);
 
       expect(aiService.generateEmbeddings).not.toHaveBeenCalled();
-      expect(neo4jService.addDocuments).not.toHaveBeenCalled();
     });
   });
 

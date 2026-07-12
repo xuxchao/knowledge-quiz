@@ -23,6 +23,7 @@ describe('Neo4jService', () => {
         {
           content: 'chunk1',
           metadata: {
+            chunkId: 'chunk-1',
             documentId: 'doc-1',
             chunkIndex: 0,
             totalChunks: 2,
@@ -36,17 +37,20 @@ describe('Neo4jService', () => {
       [[0.1, 0.2]],
     );
 
-    expect(session.run).toHaveBeenCalledWith(expect.stringContaining('SET c += $properties'), {
-      properties: {
-        content: 'chunk1',
-        embedding: [0.1, 0.2],
-        documentId: 'doc-1',
-        chunkIndex: 0,
-        totalChunks: 2,
-        tags: ['a', 'b'],
-        mixed: JSON.stringify(['a', 1]),
-        nested: JSON.stringify({ source: 'upload' }),
-      },
+    expect(session.run).toHaveBeenCalledWith(expect.stringContaining('UNWIND $rows'), {
+      rows: [{
+        properties: {
+          content: 'chunk1',
+          embedding: [0.1, 0.2],
+          chunkId: 'chunk-1',
+          documentId: 'doc-1',
+          chunkIndex: 0,
+          totalChunks: 2,
+          tags: ['a', 'b'],
+          mixed: JSON.stringify(['a', 1]),
+          nested: JSON.stringify({ source: 'upload' }),
+        },
+      }],
     });
     expect(session.close).toHaveBeenCalled();
   });

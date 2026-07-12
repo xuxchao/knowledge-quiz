@@ -1,10 +1,7 @@
 import axios from 'axios';
 import type { AxiosInstance, AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 
-const BACKEND_HOST = (import.meta.env.VITE_BACKEND_HOST as string | undefined) ?? 'localhost';
-const BACKEND_PORT = (import.meta.env.VITE_BACKEND_PORT as string | undefined) ?? '3000';
-
-export const baseURL = `http://${BACKEND_HOST}:${BACKEND_PORT}`;
+export const baseURL = (import.meta.env.VITE_API_BASE_URL as string | undefined) ?? '';
 
 const instance: AxiosInstance = axios.create({
   baseURL,

@@ -2,6 +2,7 @@ import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, ManyToOne, In
 import { Document } from './document.entity';
 
 @Entity('chunks')
+@Index('IDX_chunks_document', ['documentId', 'chunkIndex'])
 export class Chunk {
   @PrimaryGeneratedColumn('uuid')
   id: string;

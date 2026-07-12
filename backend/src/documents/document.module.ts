@@ -9,11 +9,21 @@ import { ChunkService } from './chunk.service';
 import { FileProcessorModule } from '../infrastructure/file-processor/file-processor.module';
 import { Neo4jModule } from '../infrastructure/neo4j/neo4j.module';
 import { RustfsModule } from '../infrastructure/rustfs/rustfs.module';
+import { AiModule } from '../ai/ai.module';
+import { RedisModule } from '../infrastructure/redis/redis.module';
+import { DocumentIngestionService } from './document-ingestion.service';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([Document, Chunk]), FileProcessorModule, Neo4jModule, RustfsModule],
+  imports: [
+    TypeOrmModule.forFeature([Document, Chunk]),
+    FileProcessorModule,
+    Neo4jModule,
+    RustfsModule,
+    AiModule,
+    RedisModule,
+  ],
   controllers: [DocumentController, ChunkController],
-  providers: [DocumentService, ChunkService],
+  providers: [DocumentService, ChunkService, DocumentIngestionService],
   exports: [DocumentService, ChunkService],
 })
 export class DocumentModule {}

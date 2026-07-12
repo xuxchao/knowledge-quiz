@@ -29,7 +29,7 @@ export interface Document {
   id: string;
   name: string;
   type: string;
-  status: string;
+  status: 'uploading' | 'processing' | 'processed' | 'completed' | 'failed';
   chunkCount: number;
   fileSize: number;
   createdAt: Date;
@@ -40,7 +40,6 @@ export interface Chunk {
   id: string;
   content: string;
   chunkIndex: number;
-  totalChunks: number;
   createdAt: Date;
 }
 

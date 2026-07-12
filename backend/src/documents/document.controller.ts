@@ -3,8 +3,12 @@ import {
   Controller,
   Delete,
   Get,
+  BadRequestException,
+  HttpCode,
+  HttpStatus,
   NotFoundException,
   Param,
+  ParseUUIDPipe,
   Post,
   Query,
   Res,
@@ -15,11 +19,12 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { DocumentService } from './document.service';
-import { ChunkService } from './chunk.service';
-import { FileProcessorService } from '../infrastructure/file-processor/file-processor.service';
 import { RustfsService } from '../infrastructure/rustfs/rustfs.service';
 import { Document, FileType, DocumentStatus } from '../entities/document.entity';
 import { LoggerService } from '../common/logger';
+import { DocumentQueryDto } from './DTO/document-query.dto';
+import { UploadDocumentDto } from './DTO/upload-document.dto';
+import { DocumentIngestionService } from './document-ingestion.service';
 
 const FILE_TYPE_MAP: Record<string, FileType> = {
   '.pdf': FileType.PDF,
@@ -50,14 +55,14 @@ export class DocumentController {
 
   constructor(
     private documentService: DocumentService,
-    private chunkService: ChunkService,
-    private fileProcessorService: FileProcessorService,
     private rustfsService: RustfsService,
+    private documentIngestionService: DocumentIngestionService,
   ) {}
 
   @Post()
-  @UseInterceptors(FileInterceptor('file'))
-  async uploadFile(@UploadedFile() file: Express.Multer.File, @Body() body: { url?: string }) {
+  @HttpCode(HttpStatus.ACCEPTED)
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 50 * 1024 * 1024, files: 1 } }))
+  async uploadFile(@UploadedFile() file: Express.Multer.File, @Body() body: UploadDocumentDto) {
     let originalName = file?.originalname || '';
     try {
       originalName = this.decodeOriginalFileName(originalName);
@@ -109,54 +114,19 @@ export class DocumentController {
         storageKey: rustfsKey,
       });
     } else {
-      throw new Error('No file or URL provided');
+      throw new BadRequestException('No file or URL provided');
     }
 
-    try {
-      const filePath = body.url ? body.url : rustfsUrl || file.path;
-      const fileName = body.url ? body.url : normalizedFileName;
-
-      const { text, metadata } = await this.fileProcessorService.processFile(filePath, fileName, document.type);
-
-      await this.documentService.update(document.id, {
-        status: DocumentStatus.PROCESSED,
-        metadata,
-      });
-
-      const chunks = await this.fileProcessorService.splitText(text);
-      const enrichedChunks = await this.fileProcessorService.storeChunks(document.id, chunks, document.name);
-      await this.chunkService.createForDocument(document.id, enrichedChunks);
-
-      await this.documentService.update(document.id, {
-        chunkCount: enrichedChunks.length,
-      });
-
-      this.logger.info(`请求成功 - 文件上传完成，文档ID: ${document.id}, 分块数: ${chunks.length}`);
-
-      return {
-        success: true,
-        data: await this.documentService.findByIdWithChunks(document.id),
-      };
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const stackTrace = error instanceof Error ? error.stack : undefined;
-
-      this.logger.error(`请求处理异常 - 文件上传失败，文档ID: ${document.id}，错误: ${errorMessage}`, stackTrace);
-
-      await this.documentService.update(document.id, {
-        status: DocumentStatus.FAILED,
-        errorMessage,
-      });
-      throw new Error(`File processing failed: ${errorMessage}`);
-    }
+    const filePath = body.url ? body.url : rustfsUrl || file.path;
+    const fileName = body.url ? body.url : normalizedFileName;
+    const jobId = await this.documentIngestionService.enqueue(document.id, filePath, fileName);
+    this.logger.info(`请求成功 - 文档已进入后台处理队列，文档ID: ${document.id}, 任务ID: ${jobId}`);
+    return { success: true, data: { documentId: document.id, jobId, status: document.status } };
   }
 
   @Get()
-  async listDocuments(
-    @Query('name') name?: string,
-    @Query('page') page: number = 1,
-    @Query('limit') limit: number = 10,
-  ) {
+  async listDocuments(@Query() query: DocumentQueryDto) {
+    const { name, page, limit } = query;
     this.logger.debug(`请求进入 - 获取文档列表，名称: ${name || '无'}, 页码: ${page}, 每页: ${limit}`);
 
     const validPage = Math.max(1, page);
@@ -178,13 +148,13 @@ export class DocumentController {
   }
 
   @Get(':id')
-  async getDocument(@Param('id') id: string) {
+  async getDocument(@Param('id', new ParseUUIDPipe()) id: string) {
     this.logger.debug(`请求进入 - 获取文档，ID: ${id}`);
 
     const document = await this.documentService.findByIdWithChunks(id);
     if (!document) {
       this.logger.warn(`文档未找到 - ID: ${id}`);
-      throw new Error('Document not found');
+      throw new NotFoundException('Document not found');
     }
 
     this.logger.info(`请求成功 - 获取文档完成，ID: ${id}`);
@@ -197,7 +167,7 @@ export class DocumentController {
 
   @Get(':id/download')
   async downloadDocument(
-    @Param('id') id: string,
+    @Param('id', new ParseUUIDPipe()) id: string,
     @Res({ passthrough: true }) response: Response,
   ): Promise<StreamableFile> {
     this.logger.debug(`请求进入 - 下载文档，ID: ${id}`);
@@ -229,13 +199,13 @@ export class DocumentController {
   }
 
   @Delete(':id')
-  async deleteDocument(@Param('id') id: string) {
+  async deleteDocument(@Param('id', new ParseUUIDPipe()) id: string) {
     this.logger.debug(`请求进入 - 删除文档，ID: ${id}`);
 
     const document = await this.documentService.findById(id, false);
     if (!document) {
       this.logger.warn(`文档未找到 - ID: ${id}`);
-      throw new Error('Document not found');
+      throw new NotFoundException('Document not found');
     }
 
     await this.documentService.delete(id);

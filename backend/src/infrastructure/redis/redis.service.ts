@@ -90,8 +90,18 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   @LogServiceCall()
+  async rpop(key: string): Promise<string | null> {
+    return this.client.rPop(key);
+  }
+
+  @LogServiceCall()
   async ltrim(key: string, start: number, end: number): Promise<void> {
     await this.client.lTrim(key, start, end);
+  }
+
+  @LogServiceCall()
+  async expire(key: string, seconds: number): Promise<void> {
+    await this.client.expire(key, seconds);
   }
 
   @LogServiceCall()

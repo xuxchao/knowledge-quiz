@@ -1,4 +1,5 @@
 import { LOG_LEVEL_DESCRIPTIONS } from './messages';
+import { requestContext } from './request-context';
 
 export type LogLevel = 'DEBUG' | 'INFO' | 'WARN' | 'ERROR';
 
@@ -22,7 +23,7 @@ const LEVEL_COLORS: Record<LogLevel, string> = {
 const RESET_COLOR = '\x1b[0m';
 
 export function formatJson(entry: LogEntry): string {
-  return JSON.stringify(entry, null, 2);
+  return JSON.stringify(entry);
 }
 
 export function formatConsole(entry: LogEntry): string {
@@ -51,13 +52,14 @@ export function createLogEntry(
   context?: Record<string, unknown>,
   stackTrace?: string,
 ): LogEntry {
+  const correlation = requestContext.get();
   return {
     timestamp: new Date().toISOString(),
     level,
     levelDescription: LOG_LEVEL_DESCRIPTIONS[level],
     module,
     message,
-    context,
+    context: correlation ? { ...context, ...correlation } : context,
     stackTrace,
   };
 }

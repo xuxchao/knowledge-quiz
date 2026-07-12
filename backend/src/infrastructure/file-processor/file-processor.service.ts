@@ -7,7 +7,6 @@ import sharp from 'sharp';
 import { FileType } from '../../entities/document.entity';
 import { AiService } from '../../ai/ai.service';
 import { SpeechService } from '../speech/speech.service';
-import { Neo4jService } from '../neo4j/neo4j.service';
 import { RustfsService } from '../rustfs/rustfs.service';
 import { LoggerService, LogServiceCall } from '../../common/logger';
 import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
@@ -24,7 +23,6 @@ export class FileProcessorService {
   constructor(
     private aiService: AiService,
     private speechService: SpeechService,
-    private neo4jService: Neo4jService,
     private rustfsService: RustfsService,
   ) {}
 
@@ -37,7 +35,7 @@ export class FileProcessorService {
       const key = fullPath.startsWith(`${bucket}/`) ? fullPath.substring(bucket.length + 1) : fullPath;
       return this.rustfsService.downloadFile(key);
     }
-    return fs.readFileSync(filePath);
+    return fs.promises.readFile(filePath);
   }
 
   private createTempFilePath(originalPath: string): string {
@@ -46,9 +44,9 @@ export class FileProcessorService {
     return path.join(os.tmpdir(), tmpFile);
   }
 
-  private writeTempFile(buffer: Buffer, originalPath: string): string {
+  private async writeTempFile(buffer: Buffer, originalPath: string): Promise<string> {
     const tempPath = this.createTempFilePath(originalPath);
-    fs.writeFileSync(tempPath, buffer);
+    await fs.promises.writeFile(tempPath, buffer);
     return tempPath;
   }
 
@@ -63,7 +61,7 @@ export class FileProcessorService {
 
     if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
       const buffer = await this.getFileBuffer(filePath);
-      tempPath = this.writeTempFile(buffer, filePath);
+      tempPath = await this.writeTempFile(buffer, filePath);
       needsCleanup = true;
     }
 
@@ -74,9 +72,9 @@ export class FileProcessorService {
       .join('\n\n')
       .trim();
     const metadata = docs.length > 0 ? { pageCount: docs.length, source: filePath } : { source: filePath };
-    if (needsCleanup && fs.existsSync(tempPath)) {
+    if (needsCleanup) {
       try {
-        fs.unlinkSync(tempPath);
+        await fs.promises.rm(tempPath, { force: true });
       } catch (e) {
         this.logger.warn(`无法删除临时文件 ${tempPath}: ${e}`);
       }
@@ -146,16 +144,7 @@ export class FileProcessorService {
       return this.loadWithLoader(filePath, (path) => new CSVLoader(path));
     }
 
-    let tempPath = filePath;
-    let needsCleanup = false;
-    if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
-      const buffer = await this.getFileBuffer(filePath);
-      tempPath = this.createTempFilePath(filePath);
-      fs.writeFileSync(tempPath, buffer);
-      needsCleanup = true;
-    }
-
-    const workbook = xlsx.readFile(tempPath);
+    const workbook = xlsx.read(await this.getFileBuffer(filePath), { type: 'buffer' });
     let text = '';
 
     workbook.SheetNames.forEach((sheetName) => {
@@ -163,10 +152,6 @@ export class FileProcessorService {
       const sheetText = xlsx.utils.sheet_to_csv(sheet);
       text += `\n--- Sheet: ${sheetName} ---\n${sheetText}\n`;
     });
-
-    if (needsCleanup && fs.existsSync(tempPath)) {
-      fs.unlinkSync(tempPath);
-    }
 
     return {
       text,
@@ -234,20 +219,8 @@ export class FileProcessorService {
 
   @LogServiceCall()
   async processImage(filePath: string): Promise<{ text: string; metadata: Record<string, unknown> }> {
-    let tempPath = filePath;
-    let needsCleanup = false;
-    let imageBuffer: Buffer;
-
-    if (filePath.startsWith('http://') || filePath.startsWith('https://')) {
-      imageBuffer = await this.getFileBuffer(filePath);
-      tempPath = this.createTempFilePath(filePath);
-      fs.writeFileSync(tempPath, imageBuffer);
-      needsCleanup = true;
-    } else {
-      imageBuffer = fs.readFileSync(filePath);
-    }
-
-    const image = sharp(tempPath);
+    const imageBuffer = await this.getFileBuffer(filePath);
+    const image = sharp(imageBuffer);
     const metadata = await image.metadata();
     const imageBase64 = imageBuffer.toString('base64');
 
@@ -257,10 +230,6 @@ export class FileProcessorService {
         content: `请描述这张图片的内容：${imageBase64}`,
       },
     ]);
-
-    if (needsCleanup && fs.existsSync(tempPath)) {
-      fs.unlinkSync(tempPath);
-    }
 
     return {
       text: typeof description.content === 'string' ? description.content : JSON.stringify(description.content || ''),
@@ -363,18 +332,6 @@ export class FileProcessorService {
 
       const batchIndices = Array.from({ length: batchChunks.length }, (_, j) => i + j);
       const embeddings = await this.aiService.generateEmbeddings(batchChunks);
-
-      const documents = batchChunks.map((content, j) => ({
-        content,
-        metadata: {
-          documentId,
-          documentName,
-          chunkIndex: batchIndices[j],
-          totalChunks,
-        },
-      }));
-
-      await this.neo4jService.addDocuments(documents, embeddings);
 
       enrichedChunks.push(
         ...batchChunks.map((content, j) => ({

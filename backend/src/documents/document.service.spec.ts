@@ -3,6 +3,8 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { DocumentService } from './document.service';
 import { Document, DocumentStatus } from '../entities/document.entity';
 import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
+import { RustfsService } from '../infrastructure/rustfs/rustfs.service';
+import { RedisService } from '../infrastructure/redis/redis.service';
 
 describe('DocumentService', () => {
   let service: DocumentService;
@@ -35,6 +37,14 @@ describe('DocumentService', () => {
           useValue: {
             deleteByDocumentId: jest.fn().mockResolvedValue(),
           },
+        },
+        {
+          provide: RustfsService,
+          useValue: { deleteFile: jest.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: RedisService,
+          useValue: { lpush: jest.fn().mockResolvedValue(undefined) },
         },
       ],
     }).compile();

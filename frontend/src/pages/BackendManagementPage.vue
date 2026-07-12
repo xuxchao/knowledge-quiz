@@ -37,6 +37,7 @@ onMounted(() => {
 });
 
 const handleSearch = (query: string): void => {
+  searchQuery.value = query;
   void fetchDocuments(1, query);
 };
 

@@ -1,9 +1,10 @@
-import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus, Logger } from '@nestjs/common';
+import { ExceptionFilter, Catch, ArgumentsHost, HttpStatus } from '@nestjs/common';
 import { Response } from 'express';
+import { LoggerService } from '../logger';
 
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
-  private readonly logger = new Logger(AllExceptionsFilter.name);
+  private readonly logger = new LoggerService(AllExceptionsFilter.name);
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -13,7 +14,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const message = exception instanceof Error ? exception.message : 'Unknown error';
 
-    this.logger.error(`Exception: ${message}`, exception instanceof Error ? exception.stack : undefined);
+    this.logger.error(`未处理异常 - 错误: ${message}`, exception instanceof Error ? exception.stack : undefined);
 
     response.status(status).json({
       success: false,

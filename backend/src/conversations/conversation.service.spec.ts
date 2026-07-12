@@ -22,7 +22,9 @@ describe('ConversationService', () => {
             createQueryBuilder: jest.fn().mockReturnValue({
               where: jest.fn().mockReturnThis(),
               orderBy: jest.fn().mockReturnThis(),
-              getMany: jest.fn().mockResolvedValue([]),
+              skip: jest.fn().mockReturnThis(),
+              take: jest.fn().mockReturnThis(),
+              getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
             }),
             increment: jest.fn().mockResolvedValue({ affected: 1 }),
             update: jest.fn().mockResolvedValue({ affected: 1 }),
@@ -103,6 +105,8 @@ describe('ConversationService', () => {
       expect(messageRepository.find).toHaveBeenCalledWith({
         where: { conversationId: 'test-id' },
         order: { createdAt: 'ASC' },
+        skip: 0,
+        take: 100,
       });
     });
 
@@ -133,20 +137,24 @@ describe('ConversationService', () => {
       conversationRepository.createQueryBuilder.mockReturnValue({
         where: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
-        getMany: jest.fn().mockResolvedValue(mockConversations),
+        skip: jest.fn().mockReturnThis(),
+        take: jest.fn().mockReturnThis(),
+        getManyAndCount: jest.fn().mockResolvedValue([mockConversations, 2]),
       });
 
       const result = await service.findAll('user-1');
 
-      expect(result).toEqual(mockConversations);
-      expect(result).toHaveLength(2);
+      expect(result).toEqual([mockConversations, 2]);
+      expect(result[0]).toHaveLength(2);
     });
 
     it('should not join messages into the conversation list', async () => {
       const queryBuilder = {
         where: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
-        getMany: jest.fn().mockResolvedValue([{ id: '1', title: '历史对话', messageCount: 2 }]),
+        skip: jest.fn().mockReturnThis(),
+        take: jest.fn().mockReturnThis(),
+        getManyAndCount: jest.fn().mockResolvedValue([[{ id: '1', title: '历史对话', messageCount: 2 }], 1]),
       };
 
       conversationRepository.createQueryBuilder.mockReturnValue(queryBuilder);
@@ -154,8 +162,8 @@ describe('ConversationService', () => {
       const result = await service.findAll('user-1');
 
       expect(queryBuilder.orderBy).toHaveBeenCalledWith('conversation.updatedAt', 'DESC');
-      expect(result[0].messages).toBeUndefined();
-      expect(result[0].messageCount).toBe(2);
+      expect(result[0][0].messages).toBeUndefined();
+      expect(result[0][0].messageCount).toBe(2);
     });
 
     it('should return all conversations without user filter', async () => {
@@ -164,24 +172,28 @@ describe('ConversationService', () => {
       conversationRepository.createQueryBuilder.mockReturnValue({
         where: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
-        getMany: jest.fn().mockResolvedValue(mockConversations),
+        skip: jest.fn().mockReturnThis(),
+        take: jest.fn().mockReturnThis(),
+        getManyAndCount: jest.fn().mockResolvedValue([mockConversations, 1]),
       });
 
       const result = await service.findAll();
 
-      expect(result).toEqual(mockConversations);
+      expect(result).toEqual([mockConversations, 1]);
     });
 
     it('should return empty array if no conversations', async () => {
       conversationRepository.createQueryBuilder.mockReturnValue({
         where: jest.fn().mockReturnThis(),
         orderBy: jest.fn().mockReturnThis(),
-        getMany: jest.fn().mockResolvedValue([]),
+        skip: jest.fn().mockReturnThis(),
+        take: jest.fn().mockReturnThis(),
+        getManyAndCount: jest.fn().mockResolvedValue([[], 0]),
       });
 
       const result = await service.findAll('user-1');
 
-      expect(result).toEqual([]);
+      expect(result).toEqual([[], 0]);
     });
   });
 
@@ -259,6 +271,8 @@ describe('ConversationService', () => {
       expect(messageRepository.find).toHaveBeenCalledWith({
         where: { conversationId: 'conv-1' },
         order: { createdAt: 'ASC' },
+        skip: 0,
+        take: 100,
       });
     });
 

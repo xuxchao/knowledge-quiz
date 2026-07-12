@@ -33,25 +33,20 @@ const formatSql = (sql: string): string => {
 import { Logger } from 'typeorm';
 
 class TypeOrmLogger implements Logger {
-  logQuery(query: string, parameters?: unknown[]) {
+  logQuery(query: string) {
     const formattedSql = formatSql(query);
-    const params = parameters && parameters.length > 0 ? `\n  Params: ${JSON.stringify(parameters)}` : '';
-    console.log(`\x1b[36m[TypeORM]\x1b[0m Query:\n${formattedSql}${params}\n`);
+    console.log(`\x1b[36m[TypeORM]\x1b[0m Query:\n${formattedSql}\n`);
   }
 
-  logQueryError(error: string | Error, query: string, parameters?: unknown[]) {
+  logQueryError(error: string | Error, query: string) {
     const formattedSql = formatSql(query);
-    const params = parameters && parameters.length > 0 ? `\n  Params: ${JSON.stringify(parameters)}` : '';
     const errorMsg = error instanceof Error ? error.message : error;
-    console.error(
-      `\x1b[31m[TypeORM]\x1b[0m Query Error:\n${formattedSql}${params}\n\x1b[31mError: ${errorMsg}\x1b[0m\n`,
-    );
+    console.error(`\x1b[31m[TypeORM]\x1b[0m Query Error:\n${formattedSql}\n\x1b[31mError: ${errorMsg}\x1b[0m\n`);
   }
 
-  logQuerySlow(time: number, query: string, parameters?: unknown[]) {
+  logQuerySlow(time: number, query: string) {
     const formattedSql = formatSql(query);
-    const params = parameters && parameters.length > 0 ? `\n  Params: ${JSON.stringify(parameters)}` : '';
-    console.warn(`\x1b[33m[TypeORM]\x1b[0m Slow Query (${time}ms):\n${formattedSql}${params}\n`);
+    console.warn(`\x1b[33m[TypeORM]\x1b[0m Slow Query (${time}ms):\n${formattedSql}\n`);
   }
 
   logSchemaBuild(message: string) {
@@ -75,7 +70,7 @@ class TypeOrmLogger implements Logger {
 
 export const typeOrmConfig = (configService: ConfigService): TypeOrmModuleOptions => {
   const env = configService.get<string>('NODE_ENV');
-  const loggingEnabled = configService.get<string>('TYPEORM_LOGGING') !== 'false' && env !== 'production';
+  const loggingEnabled = configService.get<string>('TYPEORM_LOGGING') === 'true' && env !== 'production';
   const loggingType = configService.get<string>('TYPEORM_LOGGING_TYPE', 'pretty');
 
   const logging: boolean | 'all' = loggingEnabled ? 'all' : false;
@@ -89,7 +84,8 @@ export const typeOrmConfig = (configService: ConfigService): TypeOrmModuleOption
     password: configService.get<string>('POSTGRES_PASSWORD', 'password'),
     database: configService.get<string>('POSTGRES_DB', 'knowledge_doc'),
     entities: [Document, Chunk, Conversation, Message],
-    migrations: [__dirname + '/../migrations/**/*.ts'],
+    migrations: [__dirname + '/../migrations/**/*{.ts,.js}'],
+    migrationsRun: env === 'production',
     synchronize: env !== 'production',
     logging,
     logger,

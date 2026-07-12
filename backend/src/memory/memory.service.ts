@@ -13,7 +13,6 @@ export interface MemoryItem {
 export class MemoryService {
   private readonly logger = new LoggerService(MemoryService.name);
   private shortTermMemoryTtl = 3600;
-  private longTermMemoryStore: Map<string, MemoryItem[]> = new Map();
 
   constructor(private redisService: RedisService) {}
 
@@ -31,37 +30,19 @@ export class MemoryService {
       createdAt: Date.now(),
     };
 
-    const existing = await this.redisService.get(key);
-    const memories: MemoryItem[] = existing ? (JSON.parse(existing) as MemoryItem[]) : [];
-    memories.push(item);
-
-    if (memories.length > 50) {
-      memories.shift();
-    }
-
-    await this.redisService.set(key, JSON.stringify(memories), this.shortTermMemoryTtl);
+    await this.redisService.lpush(key, JSON.stringify(item));
+    await this.redisService.ltrim(key, 0, 49);
+    await this.redisService.expire(key, this.shortTermMemoryTtl);
   }
 
   @LogServiceCall()
   async getShortTermMemory(conversationId: string): Promise<MemoryItem[]> {
     const key = `memory:short:${conversationId}`;
-    const existing = await this.redisService.get(key);
-    if (!existing) {
-      return [];
-    }
-    try {
-      const memories: MemoryItem[] = JSON.parse(existing) as MemoryItem[];
-      return memories.map((item) => ({
-        ...item,
-        createdAt: typeof item.createdAt === 'string' ? new Date(item.createdAt).getTime() : item.createdAt,
-      }));
-    } catch {
-      return [];
-    }
+    return this.parseMemories(await this.redisService.lrange(key, 0, 49));
   }
 
   @LogServiceCall()
-  saveLongTermMemory(userId: string, content: string, metadata?: Record<string, unknown>) {
+  async saveLongTermMemory(userId: string, content: string, metadata?: Record<string, unknown>): Promise<void> {
     const item: MemoryItem = {
       id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       content,
@@ -69,34 +50,32 @@ export class MemoryService {
       createdAt: Date.now(),
     };
 
-    const memories = this.longTermMemoryStore.get(userId) || [];
-    memories.push(item);
-
-    if (memories.length > 1000) {
-      memories.shift();
-    }
-
-    this.longTermMemoryStore.set(userId, memories);
+    const key = `memory:long:${userId}`;
+    await this.redisService.lpush(key, JSON.stringify(item));
+    await this.redisService.ltrim(key, 0, 999);
   }
 
   @LogServiceCall()
-  getLongTermMemory(userId: string) {
-    return this.longTermMemoryStore.get(userId) || [];
+  async getLongTermMemory(userId: string): Promise<MemoryItem[]> {
+    return this.parseMemories(await this.redisService.lrange(`memory:long:${userId}`, 0, 999));
   }
 
   @LogServiceCall()
   async getRelevantMemories(query: string, conversationId: string, userId: string = 'default'): Promise<MemoryItem[]> {
     const shortTerm = await this.getShortTermMemory(conversationId);
-    let longTerm = this.getLongTermMemory(userId);
-
-    if (!Array.isArray(longTerm)) {
-      this.logger.warn(`长时记忆格式异常（非数组） - userId: ${userId}`, longTerm);
-      longTerm = [];
-    }
+    const longTerm = await this.getLongTermMemory(userId);
 
     const allMemories = [...shortTerm, ...longTerm];
 
-    return allMemories.sort((a, b) => b.createdAt - a.createdAt).slice(0, 20);
+    const terms = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
+    return allMemories
+      .map((memory) => ({
+        memory,
+        score: terms.reduce((score, term) => score + (memory.content.toLocaleLowerCase().includes(term) ? 1 : 0), 0),
+      }))
+      .sort((a, b) => b.score - a.score || b.memory.createdAt - a.memory.createdAt)
+      .slice(0, 20)
+      .map(({ memory }) => memory);
   }
 
   @LogServiceCall()
@@ -106,7 +85,19 @@ export class MemoryService {
   }
 
   @LogServiceCall()
-  clearLongTermMemory(userId: string) {
-    this.longTermMemoryStore.delete(userId);
+  async clearLongTermMemory(userId: string): Promise<void> {
+    await this.redisService.del(`memory:long:${userId}`);
+  }
+
+  private parseMemories(values: string[]): MemoryItem[] {
+    return values.flatMap((value) => {
+      try {
+        const item = JSON.parse(value) as MemoryItem;
+        return [{ ...item, createdAt: Number(item.createdAt) }];
+      } catch {
+        this.logger.warn('记忆数据解析失败，已忽略损坏条目');
+        return [];
+      }
+    });
   }
 }

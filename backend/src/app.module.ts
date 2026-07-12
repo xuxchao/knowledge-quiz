@@ -17,9 +17,9 @@ import { LoggerModule } from './common/logger';
     }),
     LoggerModule.forRoot({
       config: {
-        globalLevel: 'DEBUG',
+        globalLevel: process.env.NODE_ENV === 'production' ? 'INFO' : 'DEBUG',
         globalEnabled: true,
-        outputFormat: 'console',
+        outputFormat: process.env.NODE_ENV === 'production' ? 'json' : 'console',
       },
     }),
     TypeOrmModule.forRootAsync({

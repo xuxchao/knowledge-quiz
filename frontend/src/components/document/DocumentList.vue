@@ -1,8 +1,9 @@
 <script setup lang="ts">
+import { shallowRef, watch } from 'vue';
 import { Search, Plus, Eye, Trash2, FileText } from 'lucide-vue-next';
 import type { Document } from '@/types';
 
-defineProps<{
+const props = defineProps<{
   documents: Document[];
   searchQuery: string;
   currentPage: number;
@@ -10,6 +11,12 @@ defineProps<{
   formatFileSize: (bytes: number) => string;
   formatStatus: (status: string) => string;
 }>();
+
+const localSearchQuery = shallowRef(props.searchQuery);
+watch(
+  () => props.searchQuery,
+  (value) => (localSearchQuery.value = value),
+);
 
 const emit = defineEmits<{
   search: [query: string];
@@ -26,14 +33,14 @@ const emit = defineEmits<{
       <div class="relative">
         <Search class="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-gray-400" />
         <input
-          :value="searchQuery"
+          v-model="localSearchQuery"
           placeholder="搜索文件名..."
           class="pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 w-64"
-          @keyup.enter="emit('search', ($event.target as HTMLInputElement).value)"
+          @keyup.enter="emit('search', localSearchQuery)"
         />
         <button
           class="ml-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-          @click="emit('search', searchQuery)"
+          @click="emit('search', localSearchQuery)"
         >
           搜索
         </button>
@@ -73,11 +80,11 @@ const emit = defineEmits<{
               <span
                 :class="[
                   'px-2 py-1 text-xs font-medium rounded-full',
-                  doc.status === 'PROCESSED'
+                  doc.status === 'processed'
                     ? 'bg-green-100 text-green-800'
-                    : doc.status === 'PROCESSING'
+                    : doc.status === 'processing'
                       ? 'bg-yellow-100 text-yellow-800'
-                      : doc.status === 'FAILED'
+                      : doc.status === 'failed'
                         ? 'bg-red-100 text-red-800'
                         : 'bg-blue-100 text-blue-800',
                 ]"

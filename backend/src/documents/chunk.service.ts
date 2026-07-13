@@ -97,7 +97,7 @@ export class ChunkService {
       saved.map((chunk) => ({
         chunkId: chunk.id,
         documentId,
-        documentName: String(chunk.metadata?.documentName ?? documentId),
+        documentName: typeof chunk.metadata?.documentName === 'string' ? chunk.metadata.documentName : documentId,
         content: chunk.content,
         chunkIndex: chunk.chunkIndex,
         score: 0,
@@ -139,7 +139,8 @@ export class ChunkService {
         {
           chunkId: chunk.id,
           documentId: chunk.documentId,
-          documentName: String(chunk.metadata?.documentName ?? chunk.documentId),
+          documentName:
+            typeof chunk.metadata?.documentName === 'string' ? chunk.metadata.documentName : chunk.documentId,
           content,
           chunkIndex: chunk.chunkIndex,
           score: 0,

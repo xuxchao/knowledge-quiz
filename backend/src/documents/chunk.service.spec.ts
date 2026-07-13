@@ -20,7 +20,7 @@ describe('ChunkService consistency', () => {
   beforeEach(() => {
     repository = {
       findOne: jest.fn().mockResolvedValue({ ...chunk }),
-      save: jest.fn().mockImplementation(async (value) => value),
+      save: jest.fn().mockImplementation((value) => value),
       delete: jest.fn().mockResolvedValue({ affected: 1 }),
     };
     const queryBuilder = {
@@ -34,7 +34,7 @@ describe('ChunkService consistency', () => {
       createQueryBuilder: jest.fn().mockReturnValue(queryBuilder),
     };
     const dataSource = {
-      transaction: jest.fn().mockImplementation(async (callback) => callback(manager)),
+      transaction: jest.fn().mockImplementation((callback) => callback(manager)),
     };
     aiService = { generateEmbeddings: jest.fn().mockResolvedValue([[0.2, 0.3]]) };
     neo4jService = {

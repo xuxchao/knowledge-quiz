@@ -48,12 +48,12 @@ export class RetrievalService {
     const results = new Map<string, RetrievedChunk>();
     const k = 60;
     vectorHits.forEach((hit, rank) => {
-      const chunkId = String(hit.metadata.chunkId ?? '');
+      const chunkId = typeof hit.metadata.chunkId === 'string' ? hit.metadata.chunkId : '';
       if (!chunkId) return;
       results.set(chunkId, {
         chunkId,
-        documentId: String(hit.metadata.documentId ?? ''),
-        documentName: String(hit.metadata.documentName ?? ''),
+        documentId: typeof hit.metadata.documentId === 'string' ? hit.metadata.documentId : '',
+        documentName: typeof hit.metadata.documentName === 'string' ? hit.metadata.documentName : '',
         content: hit.content,
         chunkIndex: Number(hit.metadata.chunkIndex ?? 0),
         metadata: hit.metadata,
@@ -133,7 +133,8 @@ export class RetrievalService {
         output.push({
           chunkId: neighbor.id,
           documentId: neighbor.documentId,
-          documentName: String(neighbor.metadata?.documentName ?? hit.documentName),
+          documentName:
+            typeof neighbor.metadata?.documentName === 'string' ? neighbor.metadata.documentName : hit.documentName,
           content: neighbor.content,
           chunkIndex: neighbor.chunkIndex,
           score: hit.score,

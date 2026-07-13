@@ -18,8 +18,6 @@ import { ElasticsearchService } from '../infrastructure/elasticsearch/elasticsea
 describe('DocumentController', () => {
   let controller: DocumentController;
   let documentService: DocumentService;
-  let fileProcessorService: FileProcessorService;
-  let chunkService: ChunkService;
   let rustfsService: RustfsService;
 
   const mockRustfsService = {
@@ -141,8 +139,6 @@ describe('DocumentController', () => {
 
     controller = module.get<DocumentController>(DocumentController);
     documentService = module.get<DocumentService>(DocumentService);
-    fileProcessorService = module.get<FileProcessorService>(FileProcessorService);
-    chunkService = module.get<ChunkService>(ChunkService);
     rustfsService = module.get<RustfsService>(RustfsService);
   });
 

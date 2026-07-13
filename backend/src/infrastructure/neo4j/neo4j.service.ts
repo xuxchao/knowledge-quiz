@@ -135,7 +135,8 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
       const result = await session.run('MATCH (c:DocumentChunk {documentId: $documentId}) RETURN count(c) AS count', {
         documentId,
       });
-      return result.records[0]?.get('count')?.toNumber?.() ?? Number(result.records[0]?.get('count') ?? 0);
+      const raw = result.records[0]?.get('count') as { toNumber?: () => number } | undefined;
+      return raw?.toNumber?.() ?? Number(raw ?? 0);
     } finally {
       await session.close();
     }

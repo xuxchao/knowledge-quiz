@@ -16,19 +16,19 @@ describe('MemoryService', () => {
         {
           provide: RedisService,
           useValue: {
-            lpush: jest.fn().mockImplementation(async (key: string, value: string) => {
+            lpush: jest.fn().mockImplementation((key: string, value: string) => {
               lists.set(key, [value, ...(lists.get(key) || [])]);
             }),
             lrange: jest
               .fn()
-              .mockImplementation(async (key: string, start: number, end: number) =>
+              .mockImplementation((key: string, start: number, end: number) =>
                 (lists.get(key) || []).slice(start, end + 1),
               ),
-            ltrim: jest.fn().mockImplementation(async (key: string, start: number, end: number) => {
+            ltrim: jest.fn().mockImplementation((key: string, start: number, end: number) => {
               lists.set(key, (lists.get(key) || []).slice(start, end + 1));
             }),
             expire: jest.fn().mockResolvedValue(undefined),
-            del: jest.fn().mockImplementation(async (key: string) => {
+            del: jest.fn().mockImplementation((key: string) => {
               lists.delete(key);
             }),
           },
@@ -99,27 +99,24 @@ describe('MemoryService', () => {
 
   describe('saveLongTermMemory', () => {
     it('should save memory successfully', async () => {
-      // eslint-disable-next-line @typescript-eslint/await-thenable
       await service.saveLongTermMemory('user-1', 'test content');
-      // eslint-disable-next-line @typescript-eslint/await-thenable
+
       const result = await service.getLongTermMemory('user-1');
       expect(result).toHaveLength(1);
       expect(result[0].content).toBe('test content');
     });
 
     it('should handle empty content', async () => {
-      // eslint-disable-next-line @typescript-eslint/await-thenable
       await service.saveLongTermMemory('user-1', '');
-      // eslint-disable-next-line @typescript-eslint/await-thenable
+
       const result = await service.getLongTermMemory('user-1');
       expect(result).toHaveLength(1);
       expect(result[0].content).toBe('');
     });
 
     it('should handle empty user id', async () => {
-      // eslint-disable-next-line @typescript-eslint/await-thenable
       await service.saveLongTermMemory('', 'test content');
-      // eslint-disable-next-line @typescript-eslint/await-thenable
+
       const result = await service.getLongTermMemory('');
       expect(result).toHaveLength(1);
     });
@@ -127,15 +124,13 @@ describe('MemoryService', () => {
 
   describe('getLongTermMemory', () => {
     it('should return empty array if no memory', async () => {
-      // eslint-disable-next-line @typescript-eslint/await-thenable
       const result = await service.getLongTermMemory('non-existent');
       expect(result).toEqual([]);
     });
 
     it('should return memories if they exist', async () => {
-      // eslint-disable-next-line @typescript-eslint/await-thenable
       await service.saveLongTermMemory('user-1', 'test content');
-      // eslint-disable-next-line @typescript-eslint/await-thenable
+
       const result = await service.getLongTermMemory('user-1');
       expect(Array.isArray(result)).toBe(true);
       expect(result.length).toBe(1);
@@ -143,7 +138,6 @@ describe('MemoryService', () => {
     });
 
     it('should handle empty user id', async () => {
-      // eslint-disable-next-line @typescript-eslint/await-thenable
       const result = await service.getLongTermMemory('');
       expect(result).toEqual([]);
     });
@@ -182,25 +176,22 @@ describe('MemoryService', () => {
 
   describe('clearLongTermMemory', () => {
     it('should clear memory successfully', async () => {
-      // eslint-disable-next-line @typescript-eslint/await-thenable
       await service.saveLongTermMemory('user-1', 'test content');
-      // eslint-disable-next-line @typescript-eslint/await-thenable
+
       const beforeResult = await service.getLongTermMemory('user-1');
       expect(beforeResult.length).toBe(1);
 
-      // eslint-disable-next-line @typescript-eslint/await-thenable
       await service.clearLongTermMemory('user-1');
-      // eslint-disable-next-line @typescript-eslint/await-thenable
+
       const afterResult = await service.getLongTermMemory('user-1');
       expect(afterResult).toEqual([]);
     });
 
     it('should handle empty user id', async () => {
-      // eslint-disable-next-line @typescript-eslint/await-thenable
       await service.saveLongTermMemory('', 'test content');
-      // eslint-disable-next-line @typescript-eslint/await-thenable
+
       await service.clearLongTermMemory('');
-      // eslint-disable-next-line @typescript-eslint/await-thenable
+
       const result = await service.getLongTermMemory('');
       expect(result).toEqual([]);
     });

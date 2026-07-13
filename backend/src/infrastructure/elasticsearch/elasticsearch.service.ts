@@ -81,10 +81,10 @@ export class ElasticsearchService implements OnModuleInit, OnModuleDestroy {
       const source = hit._source ?? {};
       const { content, chunkId, documentId, documentName, chunkIndex, ...metadata } = source;
       return {
-        chunkId: String(chunkId ?? hit._id),
-        documentId: String(documentId ?? ''),
-        documentName: String(documentName ?? ''),
-        content: String(content ?? ''),
+        chunkId: typeof chunkId === 'string' ? chunkId : String(hit._id ?? ''),
+        documentId: typeof documentId === 'string' ? documentId : '',
+        documentName: typeof documentName === 'string' ? documentName : '',
+        content: typeof content === 'string' ? content : '',
         chunkIndex: Number(chunkIndex ?? 0),
         score: hit._score ?? 0,
         metadata,

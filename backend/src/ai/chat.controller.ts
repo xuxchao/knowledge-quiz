@@ -194,11 +194,15 @@ ${memoryContext}
   }
 
   private formatContextChunk(chunk: RetrievedChunk): string {
+    const pageNumber = this.optionalNumber(chunk.metadata.pageNumber);
+    const sheetName = this.optionalString(chunk.metadata.sheetName);
+    const slideNumber = this.optionalNumber(chunk.metadata.slideNumber);
+    const startMs = this.optionalNumber(chunk.metadata.startMs);
     const location = [
-      chunk.metadata.pageNumber ? `页码=${chunk.metadata.pageNumber}` : '',
-      chunk.metadata.sheetName ? `工作表=${chunk.metadata.sheetName}` : '',
-      chunk.metadata.slideNumber ? `幻灯片=${chunk.metadata.slideNumber}` : '',
-      chunk.metadata.startMs !== undefined ? `开始毫秒=${chunk.metadata.startMs}` : '',
+      pageNumber != null ? `页码=${pageNumber}` : '',
+      sheetName ? `工作表=${sheetName}` : '',
+      slideNumber != null ? `幻灯片=${slideNumber}` : '',
+      startMs != null ? `开始毫秒=${startMs}` : '',
     ]
       .filter(Boolean)
       .join(', ');

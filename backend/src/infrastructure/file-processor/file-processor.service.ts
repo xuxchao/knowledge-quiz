@@ -219,7 +219,10 @@ export class FileProcessorService {
       const rows = xlsx.utils.sheet_to_json<unknown[]>(sheet, { header: 1, raw: false });
       rows.forEach((row, index) => {
         const rowText = row
-          .map((cell) => String(cell ?? ''))
+          .map((cell) => {
+            if (cell == null) return '';
+            return (cell as { toString(): string }).toString();
+          })
           .join(' | ')
           .trim();
         if (rowText)
@@ -432,7 +435,7 @@ export class FileProcessorService {
   }
 
   @LogServiceCall()
-  async splitSections(sections: ParsedSection[], chunkSize = 400, chunkOverlap = 60): Promise<StructuredChunk[]> {
+  splitSections(sections: ParsedSection[], chunkSize = 400, chunkOverlap = 60): Promise<StructuredChunk[]> {
     const output: StructuredChunk[] = [];
     for (const section of sections) {
       const tokens = this.tokenizer.encode(section.text);
@@ -447,7 +450,7 @@ export class FileProcessorService {
         if (offset + chunkSize >= tokens.length) break;
       }
     }
-    return output;
+    return Promise.resolve(output);
   }
 
   @LogServiceCall()

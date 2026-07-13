@@ -71,7 +71,9 @@ export class RetrievalService {
       });
     });
     const maxScore = Math.max(...[...results.values()].map((item) => item.score), Number.EPSILON);
-    return [...results.values()].map((item) => ({ ...item, score: item.score / maxScore })).sort((a, b) => b.score - a.score);
+    return [...results.values()]
+      .map((item) => ({ ...item, score: item.score / maxScore }))
+      .sort((a, b) => b.score - a.score);
   }
 
   private async rerank(query: string, chunks: RetrievedChunk[]): Promise<RetrievedChunk[]> {
@@ -86,14 +88,24 @@ export class RetrievalService {
       const response = await fetch(endpoint, {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ model: this.configService.get<string>('QWEN_RERANK_MODEL', 'gte-rerank-v2'), input: { query, documents: chunks.map((item) => item.content) }, parameters: { return_documents: false, top_n: chunks.length } }),
+        body: JSON.stringify({
+          model: this.configService.get<string>('QWEN_RERANK_MODEL', 'gte-rerank-v2'),
+          input: { query, documents: chunks.map((item) => item.content) },
+          parameters: { return_documents: false, top_n: chunks.length },
+        }),
         signal: AbortSignal.timeout(10000),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const payload = await response.json() as { output?: { results?: Array<{ index: number; relevance_score: number }> } };
+      const payload = (await response.json()) as {
+        output?: { results?: Array<{ index: number; relevance_score: number }> };
+      };
       const scored = payload.output?.results ?? [];
       if (!scored.length) throw new Error('重排服务返回空结果');
-      return scored.map((result) => ({ ...chunks[result.index], score: result.relevance_score, rerankScore: result.relevance_score }));
+      return scored.map((result) => ({
+        ...chunks[result.index],
+        score: result.relevance_score,
+        rerankScore: result.relevance_score,
+      }));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
       this.logger.warn(`云端重排失败，降级为RRF排序 - 错误: ${message}`);
@@ -104,12 +116,17 @@ export class RetrievalService {
   private async expandNeighbors(selected: RetrievedChunk[], tokenBudget: number): Promise<RetrievedChunk[]> {
     if (selected.length === 0) return [];
     const documentIds = [...new Set(selected.map((item) => item.documentId))];
-    const neighbors = await this.chunkRepository.find({ where: { documentId: In(documentIds) }, order: { chunkIndex: 'ASC' } });
+    const neighbors = await this.chunkRepository.find({
+      where: { documentId: In(documentIds) },
+      order: { chunkIndex: 'ASC' },
+    });
     const selectedKeys = new Set(selected.map((item) => item.chunkId));
     const output = [...selected];
     let tokens = selected.reduce((sum, item) => sum + this.estimateTokens(item.content), 0);
     for (const hit of selected) {
-      for (const neighbor of neighbors.filter((item) => item.documentId === hit.documentId && Math.abs(item.chunkIndex - hit.chunkIndex) === 1)) {
+      for (const neighbor of neighbors.filter(
+        (item) => item.documentId === hit.documentId && Math.abs(item.chunkIndex - hit.chunkIndex) === 1,
+      )) {
         if (selectedKeys.has(neighbor.id) || tokens + neighbor.tokenCount > tokenBudget) continue;
         selectedKeys.add(neighbor.id);
         tokens += neighbor.tokenCount;
@@ -120,7 +137,16 @@ export class RetrievalService {
           content: neighbor.content,
           chunkIndex: neighbor.chunkIndex,
           score: hit.score,
-          metadata: { ...(neighbor.metadata || {}), pageNumber: neighbor.pageNumber, sheetName: neighbor.sheetName, rowRange: neighbor.rowRange, slideNumber: neighbor.slideNumber, headingPath: neighbor.headingPath, startMs: neighbor.startMs, endMs: neighbor.endMs },
+          metadata: {
+            ...(neighbor.metadata || {}),
+            pageNumber: neighbor.pageNumber,
+            sheetName: neighbor.sheetName,
+            rowRange: neighbor.rowRange,
+            slideNumber: neighbor.slideNumber,
+            headingPath: neighbor.headingPath,
+            startMs: neighbor.startMs,
+            endMs: neighbor.endMs,
+          },
         });
       }
     }

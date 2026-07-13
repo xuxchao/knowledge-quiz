@@ -24,11 +24,13 @@ describe('RedisService', () => {
 
     await service.onModuleInit();
 
-    expect(createClient).toHaveBeenCalledWith(expect.objectContaining({
-      url: 'redis://localhost:6379',
-      password: undefined,
-      database: 0,
-    }));
+    expect(createClient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'redis://localhost:6379',
+        password: undefined,
+        database: 0,
+      }),
+    );
     expect(connect).toHaveBeenCalledTimes(1);
   });
 
@@ -45,11 +47,13 @@ describe('RedisService', () => {
 
     await service.onModuleInit();
 
-    expect(createClient).toHaveBeenCalledWith(expect.objectContaining({
-      url: 'redis://redis:6379',
-      password: undefined,
-      database: 2,
-    }));
+    expect(createClient).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'redis://redis:6379',
+        password: undefined,
+        database: 2,
+      }),
+    );
   });
 
   it('拒绝无效的 REDIS_DB', async () => {

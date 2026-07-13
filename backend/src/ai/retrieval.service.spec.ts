@@ -6,13 +6,33 @@ describe('RetrievalService', () => {
     const aiService = { generateEmbedding: jest.fn().mockResolvedValue([0.1, 0.2]) };
     const neo4jService = {
       search: jest.fn().mockResolvedValue([
-        { content: '向量内容', metadata: { chunkId: 'chunk-1', documentId: 'doc-1', documentName: '文档', chunkIndex: 0 }, score: 0.9 },
+        {
+          content: '向量内容',
+          metadata: { chunkId: 'chunk-1', documentId: 'doc-1', documentName: '文档', chunkIndex: 0 },
+          score: 0.9,
+        },
       ]),
     };
     const elasticsearchService = {
       search: jest.fn().mockResolvedValue([
-        { chunkId: 'chunk-1', documentId: 'doc-1', documentName: '文档', content: '关键词内容', chunkIndex: 0, score: 10, metadata: {} },
-        { chunkId: 'chunk-2', documentId: 'doc-1', documentName: '文档', content: '第二内容', chunkIndex: 1, score: 8, metadata: {} },
+        {
+          chunkId: 'chunk-1',
+          documentId: 'doc-1',
+          documentName: '文档',
+          content: '关键词内容',
+          chunkIndex: 0,
+          score: 10,
+          metadata: {},
+        },
+        {
+          chunkId: 'chunk-2',
+          documentId: 'doc-1',
+          documentName: '文档',
+          content: '第二内容',
+          chunkIndex: 1,
+          score: 8,
+          metadata: {},
+        },
       ]),
     };
     const configService = { get: jest.fn((_key: string, fallback?: string) => fallback) };

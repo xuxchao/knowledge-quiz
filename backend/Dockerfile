@@ -11,7 +11,7 @@ RUN pnpm --filter backend build
 FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
-RUN apk add --no-cache ffmpeg libreoffice poppler-utils
+RUN apk add --no-cache ffmpeg libreoffice
 RUN corepack enable
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY backend/package.json backend/package.json

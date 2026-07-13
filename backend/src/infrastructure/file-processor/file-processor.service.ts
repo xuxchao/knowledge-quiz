@@ -20,6 +20,7 @@ import { PPTXLoader } from '@langchain/community/document_loaders/fs/pptx';
 import { CSVLoader } from '@langchain/community/document_loaders/fs/csv';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
 import { getEncoding } from 'js-tiktoken';
+import { PDFParse } from 'pdf-parse';
 
 export interface ParsedSection {
   text: string;
@@ -188,7 +189,7 @@ export class FileProcessorService {
   @LogServiceCall()
   async processPdf(filePath: string): Promise<ParsedDocument> {
     const parsed = await this.loadWithLoader(filePath, (path) => new PDFLoader(path));
-    if (!parsed.metadata.pageCount || parsed.text.replace(/\s+/g, '').length >= 20) return parsed;
+    if (parsed.text.replace(/\s+/g, '').length >= 20) return parsed;
     return this.ocrPdf(filePath);
   }
 
@@ -642,29 +643,38 @@ export class FileProcessorService {
   }
 
   private async ocrPdf(filePath: string): Promise<ParsedDocument> {
-    const directory = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'rag-pdf-ocr-'));
-    const inputPath = path.join(directory, 'input.pdf');
-    const prefix = path.join(directory, 'page');
+    const parser = new PDFParse({ data: await this.getFileBuffer(filePath) });
     try {
-      await fs.promises.writeFile(inputPath, await this.getFileBuffer(filePath));
-      await this.execFileAsync(process.env.PDFTOPPM_PATH || 'pdftoppm', ['-jpeg', '-r', '150', inputPath, prefix]);
-      const files = (await fs.promises.readdir(directory)).filter((name) => /^page-\d+\.jpg$/.test(name)).sort();
+      const extracted = await parser.getText();
+      const textSections = extracted.pages.flatMap((page) => {
+        const text = page.text.trim();
+        return text ? [{ text, type: 'page' as const, metadata: { pageNumber: page.num, parser: 'pdf-parse' } }] : [];
+      });
+      if (textSections.some((section) => section.text.replace(/\s+/g, '').length >= 20)) {
+        return {
+          text: textSections.map((section) => section.text).join('\n\n'),
+          metadata: { pageCount: extracted.total, source: filePath, parser: 'pdf-parse' },
+          sections: textSections,
+        };
+      }
+
+      const screenshots = await parser.getScreenshot({ desiredWidth: 1600, imageDataUrl: true, imageBuffer: false });
       const sections: ParsedSection[] = [];
-      for (const [index, name] of files.entries()) {
-        const image = await fs.promises.readFile(path.join(directory, name));
-        const text = await this.aiService.describeImage(`data:image/jpeg;base64,${image.toString('base64')}`);
-        if (text.trim()) sections.push({ text, type: 'page', metadata: { pageNumber: index + 1, ocr: true } });
+      for (const page of screenshots.pages) {
+        const text = await this.aiService.describeImage(page.dataUrl);
+        if (text.trim()) sections.push({ text, type: 'page', metadata: { pageNumber: page.pageNumber, ocr: true } });
       }
       return {
         text: sections.map((section) => section.text).join('\n\n'),
-        metadata: { pageCount: files.length, source: filePath, ocr: true },
+        metadata: { pageCount: screenshots.total, source: filePath, parser: 'pdf-parse', ocr: true },
         sections,
       };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`扫描PDF OCR失败，请检查pdftoppm和视觉模型配置: ${message}`);
+      this.logger.error(`PDF备用解析失败 - 错误: ${message}`, error instanceof Error ? error.stack : undefined);
+      throw new Error(`PDF文本提取与OCR失败: ${message}`);
     } finally {
-      await fs.promises.rm(directory, { recursive: true, force: true });
+      await parser.destroy();
     }
   }
 }

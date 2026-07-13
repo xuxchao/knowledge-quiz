@@ -167,11 +167,11 @@ describe('FileProcessorService', () => {
     it('should process PDF files', async () => {
       const loadSpy = jest
         .spyOn<any, any>(service as any, 'loadWithLoader')
-        .mockResolvedValue({ text: 'pdf text', metadata: {} });
+        .mockResolvedValue({ text: 'pdf text content long enough to index', metadata: {} });
       const result = await service.processFile('test.pdf', 'test.pdf', FileType.PDF);
 
       expect(loadSpy).toHaveBeenCalled();
-      expect(result).toHaveProperty('text', 'pdf text');
+      expect(result).toHaveProperty('text', 'pdf text content long enough to index');
     });
 
     it('should process TXT files', async () => {

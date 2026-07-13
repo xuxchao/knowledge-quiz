@@ -6,6 +6,7 @@ import { Document } from '../entities/document.entity';
 import { LoggerService, LogServiceCall } from '../common/logger';
 import { AiService } from '../ai/ai.service';
 import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
+import { ElasticsearchService } from '../infrastructure/elasticsearch/elasticsearch.service';
 
 @Injectable()
 export class ChunkService {
@@ -17,6 +18,7 @@ export class ChunkService {
     private dataSource: DataSource,
     private aiService: AiService,
     private neo4jService: Neo4jService,
+    private elasticsearchService: ElasticsearchService,
   ) {}
 
   @LogServiceCall()
@@ -46,6 +48,14 @@ export class ChunkService {
       embedding: string;
       chunkIndex: number;
       totalChunks: number;
+      tokenCount?: number;
+      pageNumber?: number;
+      sheetName?: string;
+      rowRange?: string;
+      slideNumber?: number;
+      headingPath?: string[];
+      startMs?: number;
+      endMs?: number;
     }>,
   ): Promise<Chunk[]> {
     await this.chunkRepository.delete({ documentId });
@@ -60,9 +70,17 @@ export class ChunkService {
         content: chunk.content,
         contentSearch: chunk.content,
         chunkIndex: chunk.chunkIndex,
-        tokenCount: chunk.content.length,
+        tokenCount: chunk.tokenCount ?? chunk.content.length,
         metadata: chunk.metadata,
         embedding: chunk.embedding,
+        pageNumber: chunk.pageNumber,
+        sheetName: chunk.sheetName,
+        rowRange: chunk.rowRange,
+        slideNumber: chunk.slideNumber,
+        headingPath: chunk.headingPath,
+        startMs: chunk.startMs,
+        endMs: chunk.endMs,
+        indexStatus: 'pending',
       }),
     );
 
@@ -75,6 +93,27 @@ export class ChunkService {
       })),
       saved.map((chunk) => JSON.parse(chunk.embedding || '[]') as number[]),
     );
+    await this.elasticsearchService.indexChunks(
+      saved.map((chunk) => ({
+        chunkId: chunk.id,
+        documentId,
+        documentName: String(chunk.metadata?.documentName ?? documentId),
+        content: chunk.content,
+        chunkIndex: chunk.chunkIndex,
+        score: 0,
+        metadata: {
+          ...(chunk.metadata || {}),
+          pageNumber: chunk.pageNumber,
+          sheetName: chunk.sheetName,
+          rowRange: chunk.rowRange,
+          slideNumber: chunk.slideNumber,
+          headingPath: chunk.headingPath,
+          startMs: chunk.startMs,
+          endMs: chunk.endMs,
+        },
+      })),
+    );
+    await this.chunkRepository.update({ documentId }, { indexStatus: 'indexed' });
     return saved;
   }
 
@@ -96,6 +135,17 @@ export class ChunkService {
         [{ content, metadata: { ...(chunk.metadata || {}), chunkId: chunk.id, documentId: chunk.documentId } }],
         [embedding],
       );
+      await this.elasticsearchService.indexChunks([
+        {
+          chunkId: chunk.id,
+          documentId: chunk.documentId,
+          documentName: String(chunk.metadata?.documentName ?? chunk.documentId),
+          content,
+          chunkIndex: chunk.chunkIndex,
+          score: 0,
+          metadata: chunk.metadata || {},
+        },
+      ]);
       return saved;
     });
   }
@@ -108,6 +158,7 @@ export class ChunkService {
       if (!chunk) return false;
 
       await this.neo4jService.deleteByChunkId(id);
+      await this.elasticsearchService.deleteByChunkId(id);
       await repository.delete(id);
       await manager
         .createQueryBuilder()
@@ -121,8 +172,15 @@ export class ChunkService {
 
   @LogServiceCall()
   async cleanupDocument(documentId: string): Promise<void> {
-    await this.neo4jService.deleteByDocumentId(documentId);
+    const cleanupResults = await Promise.allSettled([
+      this.neo4jService.deleteByDocumentId(documentId),
+      this.elasticsearchService.deleteByDocumentId(documentId),
+    ]);
     await this.chunkRepository.delete({ documentId });
     await this.dataSource.getRepository(Document).update(documentId, { chunkCount: 0 });
+    const failures = cleanupResults.filter((result): result is PromiseRejectedResult => result.status === 'rejected');
+    if (failures.length) {
+      throw new Error(`外部索引清理失败: ${failures.map((result) => String(result.reason)).join('; ')}`);
+    }
   }
 }

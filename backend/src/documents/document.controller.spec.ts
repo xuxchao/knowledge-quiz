@@ -13,6 +13,7 @@ import { getRepositoryToken } from '@nestjs/typeorm';
 import { Document, FileType, DocumentStatus } from '../entities/document.entity';
 import { DocumentIngestionService } from './document-ingestion.service';
 import { RedisService } from '../infrastructure/redis/redis.service';
+import { ElasticsearchService } from '../infrastructure/elasticsearch/elasticsearch.service';
 
 describe('DocumentController', () => {
   let controller: DocumentController;
@@ -43,7 +44,7 @@ describe('DocumentController', () => {
   const mockChunkService = {
     createForDocument: jest.fn(),
   };
-  const mockIngestionService = { enqueue: jest.fn().mockResolvedValue('job-1') };
+  const mockIngestionService = { enqueue: jest.fn().mockResolvedValue('job-1'), getStatus: jest.fn() };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -107,6 +108,7 @@ describe('DocumentController', () => {
         },
         { provide: DocumentIngestionService, useValue: mockIngestionService },
         { provide: RedisService, useValue: { lpush: jest.fn().mockResolvedValue(undefined) } },
+        { provide: ElasticsearchService, useValue: { deleteByDocumentId: jest.fn().mockResolvedValue(undefined) } },
         {
           provide: getRepositoryToken(Document),
           useValue: {
@@ -293,7 +295,7 @@ describe('DocumentController', () => {
     it('should store a file, enqueue ingestion and return a job id', async () => {
       const mockFile = {
         originalname: 'test.pdf',
-        buffer: Buffer.from('test content'),
+        buffer: Buffer.from('%PDF-test content'),
         mimetype: 'application/pdf',
         size: 1000,
       } as Express.Multer.File;
@@ -324,6 +326,7 @@ describe('DocumentController', () => {
         'test-uuid',
         'http://localhost:9004/documents/test-uuid/test.pdf',
         'test.pdf',
+        expect.stringMatching(/^[a-f0-9]{64}$/),
       );
     });
 
@@ -424,6 +427,7 @@ describe('DocumentController', () => {
         'test-uuid',
         'https://example.com/doc.pdf',
         'https://example.com/doc.pdf',
+        expect.stringMatching(/^[a-f0-9]{64}$/),
       );
     });
   });

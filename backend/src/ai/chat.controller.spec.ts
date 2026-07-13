@@ -3,7 +3,7 @@ import { ChatController } from './chat.controller';
 import { ConversationService } from '../conversations/conversation.service';
 import { AiService } from './ai.service';
 import { MemoryService } from '../memory/memory.service';
-import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
+import { RetrievalService } from './retrieval.service';
 import { LangfuseService } from '../infrastructure/langfuse/langfuse.service';
 import { MessageRole } from '../entities/message.entity';
 
@@ -29,7 +29,7 @@ describe('ChatController', () => {
   let conversationService: jest.Mocked<ConversationService>;
   let aiService: jest.Mocked<AiService>;
   let memoryService: jest.Mocked<MemoryService>;
-  let neo4jService: jest.Mocked<Neo4jService>;
+  let retrievalService: jest.Mocked<RetrievalService>;
   let langfuseService: jest.Mocked<LangfuseService>;
 
   beforeEach(async () => {
@@ -62,9 +62,9 @@ describe('ChatController', () => {
           },
         },
         {
-          provide: Neo4jService,
+          provide: RetrievalService,
           useValue: {
-            search: jest.fn().mockResolvedValue([]),
+            retrieve: jest.fn().mockResolvedValue([]),
           },
         },
         {
@@ -81,7 +81,7 @@ describe('ChatController', () => {
     conversationService = module.get(ConversationService);
     aiService = module.get(AiService);
     memoryService = module.get(MemoryService);
-    neo4jService = module.get(Neo4jService);
+    retrievalService = module.get(RetrievalService);
     langfuseService = module.get(LangfuseService);
   });
 
@@ -144,12 +144,16 @@ describe('ChatController', () => {
       { name: 'langfuse-handler' },
     ]);
     expect(memoryService.saveShortTermMemory).toHaveBeenCalledWith('conv-1', '继续讲一下');
-    expect(neo4jService.search).toHaveBeenCalledWith([0.1, 0.2], 5);
+    expect(retrievalService.retrieve).toHaveBeenCalledWith('继续讲一下', undefined);
   });
 
   it('should persist retrieved document chunks as assistant references', async () => {
-    neo4jService.search.mockResolvedValue([
+    retrievalService.retrieve.mockResolvedValue([
       {
+        chunkId: 'chunk-1',
+        documentId: 'doc-1',
+        documentName: '产品说明.pdf',
+        chunkIndex: 2,
         content: '被引用的原文内容',
         metadata: { documentId: 'doc-1', documentName: '产品说明.pdf', chunkIndex: 2 },
         score: 0.91,
@@ -172,14 +176,15 @@ describe('ChatController', () => {
     await streamOptions.onFinal('这是回答');
 
     expect(conversationService.createMessage).toHaveBeenLastCalledWith('conv-1', MessageRole.ASSISTANT, '这是回答', [
-      {
+      expect.objectContaining({
         documentId: 'doc-1',
         documentName: '产品说明.pdf',
         downloadUrl: '/api/documents/doc-1/download',
         chunkIndex: 2,
         content: '被引用的原文内容',
         score: 0.91,
-      },
+        chunkId: 'chunk-1',
+      }),
     ]);
   });
 });

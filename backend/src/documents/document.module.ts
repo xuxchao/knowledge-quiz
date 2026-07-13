@@ -12,6 +12,7 @@ import { RustfsModule } from '../infrastructure/rustfs/rustfs.module';
 import { AiModule } from '../ai/ai.module';
 import { RedisModule } from '../infrastructure/redis/redis.module';
 import { DocumentIngestionService } from './document-ingestion.service';
+import { ElasticsearchModule } from '../infrastructure/elasticsearch/elasticsearch.module';
 
 @Module({
   imports: [
@@ -21,9 +22,10 @@ import { DocumentIngestionService } from './document-ingestion.service';
     RustfsModule,
     AiModule,
     RedisModule,
+    ElasticsearchModule,
   ],
   controllers: [DocumentController, ChunkController],
   providers: [DocumentService, ChunkService, DocumentIngestionService],
-  exports: [DocumentService, ChunkService],
+  exports: [DocumentService, ChunkService, DocumentIngestionService],
 })
 export class DocumentModule {}

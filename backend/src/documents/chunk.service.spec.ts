@@ -41,8 +41,19 @@ describe('ChunkService consistency', () => {
       addDocuments: jest.fn().mockResolvedValue(undefined),
       deleteByChunkId: jest.fn().mockResolvedValue(undefined),
     };
+    const elasticsearchService = {
+      indexChunks: jest.fn().mockResolvedValue(undefined),
+      deleteByChunkId: jest.fn().mockResolvedValue(undefined),
+      deleteByDocumentId: jest.fn().mockResolvedValue(undefined),
+    };
 
-    service = new ChunkService({} as never, dataSource as never, aiService as never, neo4jService as never);
+    service = new ChunkService(
+      {} as never,
+      dataSource as never,
+      aiService as never,
+      neo4jService as never,
+      elasticsearchService as never,
+    );
   });
 
   it('recomputes and synchronizes all searchable content when editing', async () => {

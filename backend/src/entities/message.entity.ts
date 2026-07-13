@@ -15,6 +15,14 @@ export interface DocumentReference {
   chunkIndex: number;
   content: string;
   score: number;
+  chunkId?: string;
+  pageNumber?: number;
+  sheetName?: string;
+  rowRange?: string;
+  slideNumber?: number;
+  headingPath?: string[];
+  startMs?: number;
+  endMs?: number;
 }
 
 @Entity('messages')

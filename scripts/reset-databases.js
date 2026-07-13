@@ -114,7 +114,7 @@ const clickhouseConfig = {
 };
 
 const elasticsearchHost = getEnv(
-  "ELASTICSEARCH_HOST",
+  "ELASTICSEARCH_URL",
   "http://localhost:9200",
 ).replace(/\/$/, "");
 

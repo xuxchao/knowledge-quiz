@@ -9,10 +9,11 @@ jest.mock('redis', () => ({
 describe('RedisService', () => {
   const connect = jest.fn();
   const quit = jest.fn();
+  const on = jest.fn();
 
   beforeEach(() => {
     jest.clearAllMocks();
-    (createClient as jest.Mock).mockReturnValue({ connect, quit });
+    (createClient as jest.Mock).mockReturnValue({ connect, quit, on });
   });
 
   it('默认连接 Redis DB 0', async () => {
@@ -23,11 +24,11 @@ describe('RedisService', () => {
 
     await service.onModuleInit();
 
-    expect(createClient).toHaveBeenCalledWith({
+    expect(createClient).toHaveBeenCalledWith(expect.objectContaining({
       url: 'redis://localhost:6379',
       password: undefined,
       database: 0,
-    });
+    }));
     expect(connect).toHaveBeenCalledTimes(1);
   });
 
@@ -44,11 +45,11 @@ describe('RedisService', () => {
 
     await service.onModuleInit();
 
-    expect(createClient).toHaveBeenCalledWith({
+    expect(createClient).toHaveBeenCalledWith(expect.objectContaining({
       url: 'redis://redis:6379',
       password: undefined,
       database: 2,
-    });
+    }));
   });
 
   it('拒绝无效的 REDIS_DB', async () => {

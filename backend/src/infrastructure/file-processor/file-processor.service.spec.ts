@@ -30,11 +30,13 @@ describe('FileProcessorService', () => {
       getChatModel: jest.fn().mockReturnValue({
         invoke: jest.fn().mockResolvedValue({ content: 'Image description' }),
       }),
+      describeImage: jest.fn().mockResolvedValue('Image description'),
       generateEmbeddings: jest.fn().mockResolvedValue([[0.1, 0.2, 0.3]]),
     };
 
     speechService = {
       speechToText: jest.fn().mockResolvedValue('Transcribed text'),
+      batchSpeechToText: jest.fn().mockResolvedValue([{ result: 'Transcribed text', startMs: 0, endMs: 3000 }]),
     };
 
     rustfsService = {
@@ -119,6 +121,18 @@ describe('FileProcessorService', () => {
       chunks.forEach((chunk) => {
         expect(chunk.length).toBeLessThanOrEqual(200);
       });
+    });
+  });
+
+  describe('splitSections', () => {
+    it('should preserve source location and calculate token counts', async () => {
+      const chunks = await service.splitSections([
+        { text: '第一行内容', type: 'table-row', metadata: { sheetName: 'Sheet1', rowRange: '2:2' } },
+      ]);
+
+      expect(chunks).toEqual([
+        expect.objectContaining({ tokenCount: expect.any(Number), metadata: { sheetName: 'Sheet1', rowRange: '2:2' } }),
+      ]);
     });
   });
 
@@ -234,18 +248,15 @@ describe('FileProcessorService', () => {
 
       expect(result).toHaveProperty('text');
       expect(result.text).toBe('Transcribed text');
-      expect(speechService.speechToText).toHaveBeenCalled();
+      expect(speechService.batchSpeechToText).toHaveBeenCalledWith(expect.any(Buffer), 'mp3');
     });
   });
 
   describe('processVideo', () => {
-    it('should process video file', async () => {
+    it('should fail explicitly when FFmpeg is unavailable instead of indexing placeholder text', async () => {
       rustfsService.downloadFile.mockResolvedValue(Buffer.from('video data'));
 
-      const result = await service.processFile('test.mp4', 'test.mp4', FileType.VIDEO);
-
-      expect(result).toHaveProperty('text');
-      expect(result.text).toContain('视频处理');
+      await expect(service.processFile('test.mp4', 'test.mp4', FileType.VIDEO)).rejects.toThrow(/FFmpeg/);
     });
   });
 });

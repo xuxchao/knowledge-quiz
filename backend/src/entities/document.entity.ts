@@ -28,6 +28,16 @@ export enum DocumentStatus {
   FAILED = 'failed',
 }
 
+export enum ProcessingStage {
+  QUEUED = 'queued',
+  EXTRACTING = 'extracting',
+  CHUNKING = 'chunking',
+  EMBEDDING = 'embedding',
+  INDEXING = 'indexing',
+  PROCESSED = 'processed',
+  FAILED = 'failed',
+}
+
 @Entity('documents')
 export class Document {
   @PrimaryGeneratedColumn('uuid')
@@ -57,6 +67,24 @@ export class Document {
 
   @Column({ type: 'text', nullable: true })
   errorMessage: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  errorCode: string;
+
+  @Column({ type: 'varchar', enum: ProcessingStage, default: ProcessingStage.QUEUED })
+  processingStage: ProcessingStage;
+
+  @Column({ type: 'integer', default: 0 })
+  retryCount: number;
+
+  @Column({ type: 'varchar', default: '2' })
+  parserVersion: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  contentHash: string;
+
+  @Column({ type: 'timestamp', nullable: true })
+  processedAt: Date;
 
   @Column({ type: 'json', nullable: true })
   metadata: Record<string, unknown>;

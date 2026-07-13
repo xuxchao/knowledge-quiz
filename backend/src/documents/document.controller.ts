@@ -25,6 +25,7 @@ import { LoggerService } from '../common/logger';
 import { DocumentQueryDto } from './DTO/document-query.dto';
 import { UploadDocumentDto } from './DTO/upload-document.dto';
 import { DocumentIngestionService } from './document-ingestion.service';
+import { createHash } from 'node:crypto';
 
 const FILE_TYPE_MAP: Record<string, FileType> = {
   '.pdf': FileType.PDF,
@@ -92,7 +93,10 @@ export class DocumentController {
       // from latin1 -> utf8 and use the decoded value when it looks valid.
 
       const ext = originalName.toLowerCase().substring(originalName.lastIndexOf('.'));
-      fileType = FILE_TYPE_MAP[ext] || FileType.TXT;
+      const detectedType = FILE_TYPE_MAP[ext];
+      if (!detectedType) throw new BadRequestException(`Unsupported file extension: ${ext || 'none'}`);
+      fileType = detectedType;
+      this.validateFileSignature(file.buffer, fileType, ext);
       normalizedFileName = originalName.normalize('NFC');
 
       document = await this.documentService.create({
@@ -119,7 +123,23 @@ export class DocumentController {
 
     const filePath = body.url ? body.url : rustfsUrl || file.path;
     const fileName = body.url ? body.url : normalizedFileName;
-    const jobId = await this.documentIngestionService.enqueue(document.id, filePath, fileName);
+    const contentHash = file
+      ? createHash('sha256').update(file.buffer).digest('hex')
+      : createHash('sha256')
+          .update(body.url || '')
+          .digest('hex');
+    let jobId: string;
+    try {
+      jobId = await this.documentIngestionService.enqueue(document.id, filePath, fileName, contentHash);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `文档入队失败 - 文档ID: ${document.id}，错误: ${errorMessage}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      await this.documentService.delete(document.id);
+      throw error;
+    }
     this.logger.info(`请求成功 - 文档已进入后台处理队列，文档ID: ${document.id}, 任务ID: ${jobId}`);
     return { success: true, data: { documentId: document.id, jobId, status: document.status } };
   }
@@ -163,6 +183,15 @@ export class DocumentController {
       success: true,
       data: document,
     };
+  }
+
+  @Get(':id/ingestion')
+  async getIngestionStatus(@Param('id', new ParseUUIDPipe()) id: string) {
+    this.logger.debug(`请求进入 - 获取文档摄取状态，ID: ${id}`);
+    const status = await this.documentIngestionService.getStatus(id);
+    if (!status) throw new NotFoundException('Document not found');
+    this.logger.info(`请求成功 - 获取文档摄取状态完成，ID: ${id}`);
+    return { success: true, data: status };
   }
 
   @Get(':id/download')
@@ -236,5 +265,29 @@ export class DocumentController {
       /[!'()*]/g,
       (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
     );
+  }
+
+  private validateFileSignature(buffer: Buffer, fileType: FileType, extension: string): void {
+    const startsWith = (...bytes: number[]) => bytes.every((value, index) => buffer[index] === value);
+    const ascii = buffer.subarray(0, 12).toString('ascii');
+    const valid = (() => {
+      if (fileType === FileType.PDF) return ascii.startsWith('%PDF-');
+      if ([FileType.DOCX, FileType.XLSX, FileType.PPTX].includes(fileType)) return startsWith(0x50, 0x4b);
+      if ([FileType.DOC, FileType.XLS, FileType.PPT].includes(fileType)) return startsWith(0xd0, 0xcf, 0x11, 0xe0);
+      if (fileType === FileType.IMAGE) {
+        return (
+          startsWith(0xff, 0xd8) ||
+          startsWith(0x89, 0x50, 0x4e, 0x47) ||
+          ascii.startsWith('GIF8') ||
+          ascii.startsWith('RIFF')
+        );
+      }
+      if (fileType === FileType.AUDIO) {
+        return ascii.startsWith('ID3') || ascii.startsWith('RIFF') || ascii.includes('ftyp') || startsWith(0xff, 0xfb);
+      }
+      if (fileType === FileType.VIDEO) return ascii.includes('ftyp');
+      return !buffer.subarray(0, Math.min(buffer.length, 4096)).includes(0);
+    })();
+    if (!valid) throw new BadRequestException(`File content does not match extension ${extension}`);
   }
 }

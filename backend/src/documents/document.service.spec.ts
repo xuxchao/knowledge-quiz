@@ -5,6 +5,7 @@ import { Document, DocumentStatus } from '../entities/document.entity';
 import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
 import { RustfsService } from '../infrastructure/rustfs/rustfs.service';
 import { RedisService } from '../infrastructure/redis/redis.service';
+import { ElasticsearchService } from '../infrastructure/elasticsearch/elasticsearch.service';
 
 describe('DocumentService', () => {
   let service: DocumentService;
@@ -45,6 +46,10 @@ describe('DocumentService', () => {
         {
           provide: RedisService,
           useValue: { lpush: jest.fn().mockResolvedValue(undefined) },
+        },
+        {
+          provide: ElasticsearchService,
+          useValue: { deleteByDocumentId: jest.fn().mockResolvedValue(undefined) },
         },
       ],
     }).compile();

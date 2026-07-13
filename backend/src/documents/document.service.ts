@@ -6,6 +6,7 @@ import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
 import { LoggerService, LogServiceCall } from '../common/logger';
 import { RustfsService } from '../infrastructure/rustfs/rustfs.service';
 import { RedisService } from '../infrastructure/redis/redis.service';
+import { ElasticsearchService } from '../infrastructure/elasticsearch/elasticsearch.service';
 
 @Injectable()
 export class DocumentService {
@@ -17,6 +18,7 @@ export class DocumentService {
     private neo4jService: Neo4jService,
     private rustfsService: RustfsService,
     private redisService: RedisService,
+    private elasticsearchService: ElasticsearchService,
   ) {}
 
   @LogServiceCall()
@@ -61,8 +63,9 @@ export class DocumentService {
   @LogServiceCall()
   async delete(id: string): Promise<void> {
     const document = await this.findById(id);
-    await this.documentRepository.delete(id);
     await this.neo4jService.deleteByDocumentId(id);
+    await this.elasticsearchService.deleteByDocumentId(id);
+    await this.documentRepository.delete(id);
     if (document?.storageKey) {
       try {
         await this.rustfsService.deleteFile(document.storageKey);

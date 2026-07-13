@@ -11,8 +11,14 @@ type Neo4jPropertyValue = Neo4jPrimitive | Neo4jPrimitive[];
 export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new LoggerService(Neo4jService.name);
   private driver: Driver;
+  private readonly indexName: string;
+  private readonly embeddingDimensions: number;
 
-  constructor(private configService: ConfigService) {}
+  constructor(private configService: ConfigService) {
+    this.indexName = this.configService.get<string>('NEO4J_VECTOR_INDEX', 'document_embeddings_v2');
+    this.embeddingDimensions = Number(this.configService.get<string>('EMBEDDING_DIMENSIONS', '1536'));
+    if (!/^[A-Za-z0-9_]+$/.test(this.indexName)) throw new Error('NEO4J_VECTOR_INDEX格式无效');
+  }
 
   async onModuleInit() {
     const uri = this.configService.get<string>('NEO4J_URI', 'bolt://localhost:7687');
@@ -39,11 +45,11 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
     const session = this.driver.session();
     try {
       await session.run(`
-        CREATE VECTOR INDEX document_embeddings IF NOT EXISTS
+        CREATE VECTOR INDEX ${this.indexName} IF NOT EXISTS
         FOR (c:DocumentChunk)
         ON c.embedding
         OPTIONS { indexConfig: {
-          \`vector.dimensions\`: 1536,
+          \`vector.dimensions\`: ${this.embeddingDimensions},
           \`vector.similarity_function\`: 'cosine'
         }}
       `);
@@ -92,19 +98,23 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   async search(
     queryEmbedding: number[],
     topK: number = 5,
+    documentIds?: string[],
   ): Promise<{ content: string; metadata: Record<string, unknown>; score: number }[]> {
     const session = this.driver.session();
     try {
       const result = await session.run(
         `
-        CALL db.index.vector.queryNodes('document_embeddings', $topK, $queryEmbedding)
+        CALL db.index.vector.queryNodes($indexName, $topK, $queryEmbedding)
         YIELD node, score
+        WHERE size($documentIds) = 0 OR node.documentId IN $documentIds
         RETURN node.content AS content, properties(node) AS properties, score
         ORDER BY score DESC
       `,
         {
           topK,
           queryEmbedding,
+          indexName: this.indexName,
+          documentIds: documentIds ?? [],
         },
       );
 
@@ -113,6 +123,19 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
         metadata: this.extractMetadata(record.get('properties') as Record<string, unknown>),
         score: record.get('score') as number,
       }));
+    } finally {
+      await session.close();
+    }
+  }
+
+  @LogServiceCall()
+  async countByDocumentId(documentId: string): Promise<number> {
+    const session = this.driver.session();
+    try {
+      const result = await session.run('MATCH (c:DocumentChunk {documentId: $documentId}) RETURN count(c) AS count', {
+        documentId,
+      });
+      return result.records[0]?.get('count')?.toNumber?.() ?? Number(result.records[0]?.get('count') ?? 0);
     } finally {
       await session.close();
     }

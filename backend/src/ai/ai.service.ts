@@ -11,6 +11,7 @@ export class AiService implements OnModuleInit {
   private readonly logger = new LoggerService(AiService.name);
   private chatModel: ChatOpenAI;
   private embeddings: OpenAIEmbeddings;
+  private visionModel: ChatOpenAI;
   private chatPrompt: ChatPromptTemplate;
 
   constructor(private configService: ConfigService) {}
@@ -45,6 +46,14 @@ export class AiService implements OnModuleInit {
       model: 'text-embedding-v2',
     });
 
+    this.visionModel = new ChatOpenAI({
+      apiKey,
+      configuration: { baseURL: apiBaseUrl },
+      model: this.configService.get<string>('QWEN_VISION_MODEL', 'qwen-vl-plus'),
+      temperature: 0.1,
+      maxTokens: 2048,
+    });
+
     this.chatPrompt = ChatPromptTemplate.fromMessages([
       ['system', '{systemPrompt}'],
       ['human', '{query}'],
@@ -69,6 +78,20 @@ export class AiService implements OnModuleInit {
   @LogServiceCall()
   async generateEmbeddings(texts: string[]): Promise<number[][]> {
     return this.embeddings.embedDocuments(texts);
+  }
+
+  @LogServiceCall()
+  async describeImage(dataUrl: string): Promise<string> {
+    const response = await this.visionModel.invoke([
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: '提取图片中的全部可读文字，并准确描述图表、对象和关键关系。不要猜测不可见内容。' },
+          { type: 'image_url', image_url: { url: dataUrl } },
+        ],
+      },
+    ]);
+    return this.extractMessageContent(response).trim();
   }
 
   @LogServiceCall()

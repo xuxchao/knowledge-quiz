@@ -28,6 +28,33 @@ export class Chunk {
   @Column({ type: 'json', nullable: true })
   metadata: Record<string, unknown>;
 
+  @Column({ type: 'integer', nullable: true })
+  pageNumber: number;
+
+  @Column({ type: 'varchar', nullable: true })
+  sheetName: string;
+
+  @Column({ type: 'varchar', nullable: true })
+  rowRange: string;
+
+  @Column({ type: 'integer', nullable: true })
+  slideNumber: number;
+
+  @Column({ type: 'json', nullable: true })
+  headingPath: string[];
+
+  @Column({ type: 'integer', nullable: true })
+  startMs: number;
+
+  @Column({ type: 'integer', nullable: true })
+  endMs: number;
+
+  @Column({ type: 'varchar', default: 'text-embedding-v2' })
+  embeddingModel: string;
+
+  @Column({ type: 'varchar', default: 'pending' })
+  indexStatus: string;
+
   @Column({ type: 'text', nullable: true })
   embedding: string;
 

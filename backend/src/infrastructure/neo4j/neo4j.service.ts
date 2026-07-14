@@ -1,6 +1,6 @@
 import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Driver, auth } from 'neo4j-driver';
+import { Driver, Session, auth } from 'neo4j-driver';
 import neo4j from 'neo4j-driver';
 import { LoggerService, LogServiceCall } from '../../common/logger';
 
@@ -13,9 +13,11 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   private driver: Driver;
   private readonly indexName: string;
   private readonly embeddingDimensions: number;
+  private activeIndexName: string;
 
   constructor(private configService: ConfigService) {
     this.indexName = this.configService.get<string>('NEO4J_VECTOR_INDEX', 'document_embeddings_v2');
+    this.activeIndexName = this.indexName;
     this.embeddingDimensions = Number(this.configService.get<string>('EMBEDDING_DIMENSIONS', '1536'));
     if (!/^[A-Za-z0-9_]+$/.test(this.indexName)) throw new Error('NEO4J_VECTOR_INDEX格式无效');
   }
@@ -53,6 +55,12 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
           \`vector.similarity_function\`: 'cosine'
         }}
       `);
+      this.activeIndexName = await this.waitForVectorIndex(session);
+      if (this.activeIndexName !== this.indexName) {
+        this.logger.warn(
+          `配置的Neo4j向量索引不存在，复用同架构索引 - 配置索引: ${this.indexName}，实际索引: ${this.activeIndexName}`,
+        );
+      }
     } finally {
       await session.close();
     }
@@ -102,30 +110,95 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   ): Promise<{ content: string; metadata: Record<string, unknown>; score: number }[]> {
     const session = this.driver.session();
     try {
-      const result = await session.run(
-        `
+      try {
+        return await this.queryVectorIndex(session, queryEmbedding, topK, documentIds);
+      } catch (error: unknown) {
+        if (!this.isMissingVectorIndexError(error)) {
+          throw error;
+        }
+
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const stackTrace = error instanceof Error ? error.stack : undefined;
+        this.logger.error(
+          `Neo4j向量索引缺失，正在自动重建 - 索引: ${this.activeIndexName}，错误: ${errorMessage}`,
+          stackTrace,
+        );
+        await this.createVectorIndex();
+        return await this.queryVectorIndex(session, queryEmbedding, topK, documentIds);
+      }
+    } finally {
+      await session.close();
+    }
+  }
+
+  private async queryVectorIndex(
+    session: Session,
+    queryEmbedding: number[],
+    topK: number,
+    documentIds?: string[],
+  ): Promise<{ content: string; metadata: Record<string, unknown>; score: number }[]> {
+    const result = await session.run(
+      `
         CALL db.index.vector.queryNodes($indexName, $topK, $queryEmbedding)
         YIELD node, score
         WHERE size($documentIds) = 0 OR node.documentId IN $documentIds
         RETURN node.content AS content, properties(node) AS properties, score
         ORDER BY score DESC
       `,
+      {
+        topK,
+        queryEmbedding,
+        indexName: this.activeIndexName,
+        documentIds: documentIds ?? [],
+      },
+    );
+
+    return result.records.map((record) => ({
+      content: record.get('content') as string,
+      metadata: this.extractMetadata(record.get('properties') as Record<string, unknown>),
+      score: record.get('score') as number,
+    }));
+  }
+
+  private isMissingVectorIndexError(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    return message.includes('There is no such vector schema index');
+  }
+
+  private async waitForVectorIndex(session: Session): Promise<string> {
+    const timeoutMs = 30000;
+    const deadline = Date.now() + timeoutMs;
+
+    while (Date.now() < deadline) {
+      const result = await session.run(
+        `
+        SHOW VECTOR INDEXES
+        YIELD name, labelsOrTypes, properties, state, failureMessage
+        WHERE labelsOrTypes = $labelsOrTypes AND properties = $properties
+        RETURN name, state, failureMessage
+        `,
         {
-          topK,
-          queryEmbedding,
-          indexName: this.indexName,
-          documentIds: documentIds ?? [],
+          labelsOrTypes: ['DocumentChunk'],
+          properties: ['embedding'],
         },
       );
+      const configuredIndex = result.records.find((record) => record.get('name') === this.indexName);
+      const index = configuredIndex ?? result.records[0];
+      const name = index?.get('name') as string | undefined;
+      const state = index?.get('state') as string | undefined;
+      const failureMessage = index?.get('failureMessage') as string | undefined;
 
-      return result.records.map((record) => ({
-        content: record.get('content') as string,
-        metadata: this.extractMetadata(record.get('properties') as Record<string, unknown>),
-        score: record.get('score') as number,
-      }));
-    } finally {
-      await session.close();
+      if (name && state === 'ONLINE') {
+        return name;
+      }
+      if (state === 'FAILED') {
+        throw new Error(`Neo4j向量索引创建失败: ${failureMessage || name || this.indexName}`);
+      }
+
+      await new Promise<void>((resolve) => setTimeout(resolve, 250));
     }
+
+    throw new Error(`等待Neo4j向量索引就绪超时: ${this.indexName}`);
   }
 
   @LogServiceCall()

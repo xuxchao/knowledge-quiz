@@ -7,11 +7,27 @@ describe('Neo4jService', () => {
 
   beforeEach(() => {
     session = {
-      run: jest.fn().mockResolvedValue({ records: [] }),
+      run: jest.fn((query: string) =>
+        Promise.resolve({
+          records: query.includes('SHOW VECTOR INDEXES')
+            ? [
+                {
+                  get: jest.fn((key: string) => {
+                    if (key === 'name') return 'document_embeddings_v2';
+                    if (key === 'state') return 'ONLINE';
+                    return undefined;
+                  }),
+                },
+              ]
+            : [],
+        }),
+      ),
       close: jest.fn().mockResolvedValue(undefined),
     };
 
-    service = new Neo4jService({ get: jest.fn() } as unknown as ConfigService);
+    service = new Neo4jService({
+      get: jest.fn((_key: string, defaultValue?: unknown) => defaultValue),
+    } as unknown as ConfigService);
     (service as unknown as { driver: { session: jest.Mock } }).driver = {
       session: jest.fn().mockReturnValue(session),
     };
@@ -53,6 +69,17 @@ describe('Neo4jService', () => {
           },
         },
       ],
+    });
+    expect(session.close).toHaveBeenCalled();
+  });
+
+  it('should wait for the vector index to become online after creating it', async () => {
+    await service.createVectorIndex();
+
+    expect(session.run).toHaveBeenNthCalledWith(1, expect.stringContaining('CREATE VECTOR INDEX'));
+    expect(session.run).toHaveBeenNthCalledWith(2, expect.stringContaining('SHOW VECTOR INDEXES'), {
+      labelsOrTypes: ['DocumentChunk'],
+      properties: ['embedding'],
     });
     expect(session.close).toHaveBeenCalled();
   });
@@ -105,5 +132,69 @@ describe('Neo4jService', () => {
         score: 0.9,
       },
     ]);
+  });
+
+  it('should recreate a missing vector index and retry the search once', async () => {
+    const missingIndexError = new Error('There is no such vector schema index: document_embeddings_v2');
+    let vectorQueryCount = 0;
+    session.run.mockImplementation((query: string) => {
+      if (query.includes('db.index.vector.queryNodes')) {
+        vectorQueryCount += 1;
+        if (vectorQueryCount === 1) {
+          return Promise.reject(missingIndexError);
+        }
+      }
+      if (query.includes('SHOW VECTOR INDEXES')) {
+        return Promise.resolve({
+          records: [
+            {
+              get: jest.fn((key: string) => {
+                if (key === 'name') return 'document_embeddings_v2';
+                if (key === 'state') return 'ONLINE';
+                return undefined;
+              }),
+            },
+          ],
+        });
+      }
+      return Promise.resolve({ records: [] });
+    });
+
+    await expect(service.search([0.1, 0.2], 1)).resolves.toEqual([]);
+
+    expect(vectorQueryCount).toBe(2);
+    expect(session.run).toHaveBeenCalledWith(expect.stringContaining('CREATE VECTOR INDEX'));
+    expect(session.run).toHaveBeenCalledWith(expect.stringContaining('SHOW VECTOR INDEXES'), {
+      labelsOrTypes: ['DocumentChunk'],
+      properties: ['embedding'],
+    });
+  });
+
+  it('should reuse an online legacy index with the same schema', async () => {
+    session.run.mockImplementation((query: string) =>
+      Promise.resolve({
+        records: query.includes('SHOW VECTOR INDEXES')
+          ? [
+              {
+                get: jest.fn((key: string) => {
+                  if (key === 'name') return 'document_embeddings';
+                  if (key === 'state') return 'ONLINE';
+                  return undefined;
+                }),
+              },
+            ]
+          : [],
+      }),
+    );
+
+    await service.createVectorIndex();
+    await service.search([0.1, 0.2], 1);
+
+    expect(session.run).toHaveBeenLastCalledWith(expect.stringContaining('db.index.vector.queryNodes'), {
+      topK: 1,
+      queryEmbedding: [0.1, 0.2],
+      indexName: 'document_embeddings',
+      documentIds: [],
+    });
   });
 });

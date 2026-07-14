@@ -1,16 +1,16 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConfigModule } from '@nestjs/config';
 import { MemoryService } from './memory.service';
 import { RedisService } from '../infrastructure/redis/redis.service';
+import { Mem0Service } from '../infrastructure/mem0/mem0.service';
 
 describe('MemoryService', () => {
   let service: MemoryService;
   let redisService: jest.Mocked<RedisService>;
+  let mem0Service: jest.Mocked<Mem0Service>;
 
   beforeEach(async () => {
     const lists = new Map<string, string[]>();
     const module: TestingModule = await Test.createTestingModule({
-      imports: [ConfigModule.forRoot()],
       providers: [
         MemoryService,
         {
@@ -33,11 +33,21 @@ describe('MemoryService', () => {
             }),
           },
         },
+        {
+          provide: Mem0Service,
+          useValue: {
+            addMemory: jest.fn().mockResolvedValue(undefined),
+            searchMemories: jest.fn().mockResolvedValue([]),
+            getMemories: jest.fn().mockResolvedValue([]),
+            deleteMemories: jest.fn().mockResolvedValue(undefined),
+          },
+        },
       ],
     }).compile();
 
-    service = module.get<MemoryService>(MemoryService);
-    redisService = module.get<RedisService>(RedisService);
+    service = module.get(MemoryService);
+    redisService = module.get(RedisService);
+    mem0Service = module.get(Mem0Service);
   });
 
   afterEach(() => {
@@ -48,152 +58,117 @@ describe('MemoryService', () => {
     expect(service).toBeDefined();
   });
 
-  describe('saveShortTermMemory', () => {
-    it('should save memory successfully', async () => {
+  describe('short-term memory', () => {
+    it('stores short-term memory only in Redis with its retention limits', async () => {
       await service.saveShortTermMemory('conv-1', 'test content');
-      expect(redisService.lpush).toHaveBeenCalled();
+
+      expect(redisService.lpush).toHaveBeenCalledWith('memory:short:conv-1', expect.any(String));
       expect(redisService.ltrim).toHaveBeenCalledWith('memory:short:conv-1', 0, 49);
       expect(redisService.expire).toHaveBeenCalledWith('memory:short:conv-1', 3600);
+      expect(mem0Service.addMemory).not.toHaveBeenCalled();
     });
 
-    it('should handle empty content', async () => {
-      await service.saveShortTermMemory('conv-1', '');
-      expect(redisService.lpush).toHaveBeenCalled();
-    });
+    it('returns valid Redis entries and ignores damaged JSON', async () => {
+      const memory = { id: '1', content: 'test', metadata: {}, createdAt: 123 };
+      redisService.lrange.mockResolvedValue([JSON.stringify(memory), 'invalid json']);
 
-    it('should handle empty conversation id', async () => {
-      await service.saveShortTermMemory('', 'test content');
-      expect(redisService.lpush).toHaveBeenCalled();
-    });
-  });
-
-  describe('getShortTermMemory', () => {
-    it('should return empty array if no memory', async () => {
-      const result = await service.getShortTermMemory('non-existent');
-      expect(result).toEqual([]);
-      expect(redisService.lrange).toHaveBeenCalledWith('memory:short:non-existent', 0, 49);
-    });
-
-    it('should return memories if they exist', async () => {
-      const mockMemories = [{ id: '1', content: 'test', metadata: {}, createdAt: 1234567890 }];
-      jest.spyOn(redisService, 'lrange').mockResolvedValue(mockMemories.map(JSON.stringify));
-      const result = await service.getShortTermMemory('conv-1');
-      expect(result).toEqual(mockMemories);
-      expect(result).toHaveLength(1);
-      expect(result[0].content).toBe('test');
-      expect(result[0].id).toBe('1');
+      await expect(service.getShortTermMemory('conv-1')).resolves.toEqual([memory]);
       expect(redisService.lrange).toHaveBeenCalledWith('memory:short:conv-1', 0, 49);
     });
 
-    it('should return empty array if redis returns invalid JSON', async () => {
-      jest.spyOn(redisService, 'lrange').mockResolvedValue(['invalid json']);
-      const result = await service.getShortTermMemory('conv-1');
-      expect(result).toEqual([]);
-    });
+    it('clears only the conversation Redis key', async () => {
+      await service.clearShortTermMemory('conv-1');
 
-    it('should handle empty conversation id', async () => {
-      const result = await service.getShortTermMemory('');
-      expect(result).toEqual([]);
+      expect(redisService.del).toHaveBeenCalledWith('memory:short:conv-1');
+      expect(mem0Service.deleteMemories).not.toHaveBeenCalled();
     });
   });
 
-  describe('saveLongTermMemory', () => {
-    it('should save memory successfully', async () => {
-      await service.saveLongTermMemory('user-1', 'test content');
+  describe('long-term memory', () => {
+    it('writes a user and assistant message pair to Mem0 without touching Redis', async () => {
+      const messages = [
+        { role: 'user' as const, content: '我喜欢科幻电影' },
+        { role: 'assistant' as const, content: '以后会优先推荐科幻电影' },
+      ];
 
-      const result = await service.getLongTermMemory('user-1');
-      expect(result).toHaveLength(1);
-      expect(result[0].content).toBe('test content');
+      await service.saveLongTermMemory('user-1', messages, { conversationId: 'conv-1' });
+
+      expect(mem0Service.addMemory).toHaveBeenCalledWith('user-1', messages, { conversationId: 'conv-1' });
+      expect(redisService.lpush).not.toHaveBeenCalled();
+      expect(redisService.ltrim).not.toHaveBeenCalled();
     });
 
-    it('should handle empty content', async () => {
-      await service.saveLongTermMemory('user-1', '');
+    it('maps Mem0 records to MemoryItem', async () => {
+      mem0Service.getMemories.mockResolvedValue([
+        { id: 'mem-1', memory: '用户喜欢科幻电影', metadata: { source: 'chat' }, createdAt: 456 },
+      ]);
 
-      const result = await service.getLongTermMemory('user-1');
-      expect(result).toHaveLength(1);
-      expect(result[0].content).toBe('');
+      await expect(service.getLongTermMemory('user-1')).resolves.toEqual([
+        { id: 'mem-1', content: '用户喜欢科幻电影', metadata: { source: 'chat' }, createdAt: 456 },
+      ]);
+      expect(mem0Service.getMemories).toHaveBeenCalledWith('user-1', 10);
+      expect(redisService.lrange).not.toHaveBeenCalled();
     });
 
-    it('should handle empty user id', async () => {
-      await service.saveLongTermMemory('', 'test content');
+    it('clears Mem0 memories without deleting legacy Redis keys', async () => {
+      await service.clearLongTermMemory('user-1');
 
-      const result = await service.getLongTermMemory('');
-      expect(result).toHaveLength(1);
-    });
-  });
-
-  describe('getLongTermMemory', () => {
-    it('should return empty array if no memory', async () => {
-      const result = await service.getLongTermMemory('non-existent');
-      expect(result).toEqual([]);
-    });
-
-    it('should return memories if they exist', async () => {
-      await service.saveLongTermMemory('user-1', 'test content');
-
-      const result = await service.getLongTermMemory('user-1');
-      expect(Array.isArray(result)).toBe(true);
-      expect(result.length).toBe(1);
-      expect(result[0].content).toBe('test content');
-    });
-
-    it('should handle empty user id', async () => {
-      const result = await service.getLongTermMemory('');
-      expect(result).toEqual([]);
+      expect(mem0Service.deleteMemories).toHaveBeenCalledWith('user-1');
+      expect(redisService.del).not.toHaveBeenCalled();
     });
   });
 
   describe('getRelevantMemories', () => {
-    it('should return relevant memories', async () => {
-      const result = await service.getRelevantMemories('test', 'conv-1', 'user-1');
-      expect(Array.isArray(result)).toBe(true);
+    it('combines ranked short-term records with Mem0 semantic results and removes duplicates', async () => {
+      redisService.lrange.mockResolvedValue([
+        JSON.stringify({ id: 'short-new', content: '普通新消息', metadata: {}, createdAt: 300 }),
+        JSON.stringify({ id: 'short-match', content: '我喜欢 科幻', metadata: {}, createdAt: 200 }),
+      ]);
+      mem0Service.searchMemories.mockResolvedValue([
+        { id: 'long-duplicate', memory: '  我喜欢   科幻 ', metadata: {}, createdAt: 100 },
+        { id: 'long-unique', memory: '用户不喜欢恐怖片', metadata: {}, createdAt: 90 },
+      ]);
+
+      const result = await service.getRelevantMemories('科幻', 'conv-1', 'user-1');
+
+      expect(result.map((memory) => memory.id)).toEqual(['short-match', 'short-new', 'long-unique']);
+      expect(mem0Service.searchMemories).toHaveBeenCalledWith('科幻', 'user-1', 10);
+      expect(mem0Service.getMemories).not.toHaveBeenCalled();
     });
 
-    it('should handle empty query', async () => {
-      const result = await service.getRelevantMemories('', 'conv-1', 'user-1');
-      expect(Array.isArray(result)).toBe(true);
+    it('uses the latest Mem0 memories when the query is empty', async () => {
+      await service.getRelevantMemories('   ', 'conv-1', 'user-1');
+
+      expect(mem0Service.getMemories).toHaveBeenCalledWith('user-1', 10);
+      expect(mem0Service.searchMemories).not.toHaveBeenCalled();
     });
 
-    it('should handle empty conversation id', async () => {
-      const result = await service.getRelevantMemories('test', '', 'user-1');
-      expect(Array.isArray(result)).toBe(true);
-    });
-  });
+    it('propagates Mem0 failures instead of degrading to Redis-only results', async () => {
+      mem0Service.searchMemories.mockRejectedValue(new Error('Mem0 unavailable'));
 
-  describe('clearShortTermMemory', () => {
-    it('should clear memory successfully', async () => {
-      jest.spyOn(redisService, 'del').mockResolvedValue();
-      await service.clearShortTermMemory('conv-1');
-      expect(redisService.del).toHaveBeenCalledWith('memory:short:conv-1');
+      await expect(service.getRelevantMemories('test', 'conv-1', 'user-1')).rejects.toThrow('Mem0 unavailable');
     });
 
-    it('should handle empty conversation id', async () => {
-      jest.spyOn(redisService, 'del').mockResolvedValue();
-      await service.clearShortTermMemory('');
-      expect(redisService.del).toHaveBeenCalled();
-    });
-  });
+    it('limits each memory source to ten records and the merged result to twenty', async () => {
+      redisService.lrange.mockResolvedValue(
+        Array.from({ length: 15 }, (_, index) =>
+          JSON.stringify({ id: `short-${index}`, content: `short ${index}`, metadata: {}, createdAt: 100 - index }),
+        ),
+      );
+      mem0Service.searchMemories.mockResolvedValue(
+        Array.from({ length: 10 }, (_, index) => ({
+          id: `long-${index}`,
+          memory: `long ${index}`,
+          metadata: {},
+          createdAt: 50 - index,
+        })),
+      );
 
-  describe('clearLongTermMemory', () => {
-    it('should clear memory successfully', async () => {
-      await service.saveLongTermMemory('user-1', 'test content');
+      const result = await service.getRelevantMemories('memory', 'conv-1', 'user-1');
 
-      const beforeResult = await service.getLongTermMemory('user-1');
-      expect(beforeResult.length).toBe(1);
-
-      await service.clearLongTermMemory('user-1');
-
-      const afterResult = await service.getLongTermMemory('user-1');
-      expect(afterResult).toEqual([]);
-    });
-
-    it('should handle empty user id', async () => {
-      await service.saveLongTermMemory('', 'test content');
-
-      await service.clearLongTermMemory('');
-
-      const result = await service.getLongTermMemory('');
-      expect(result).toEqual([]);
+      expect(result).toHaveLength(20);
+      expect(result.filter((memory) => memory.id.startsWith('short-'))).toHaveLength(10);
+      expect(result.filter((memory) => memory.id.startsWith('long-'))).toHaveLength(10);
     });
   });
 });

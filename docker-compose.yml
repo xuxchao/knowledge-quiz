@@ -56,6 +56,93 @@ services:
     networks:
       - knowledge-doc-network
 
+  mem0-postgres:
+    image: pgvector/pgvector:pg17
+    container_name: knowledge-doc-mem0-postgres
+    restart: always
+    ports:
+      - '8432:5432'
+    volumes:
+      - ./volumes/mem0-postgres-data:/var/lib/postgresql/data
+      - ./docker/mem0/init-db.sh:/docker-entrypoint-initdb.d/01-init-mem0-app.sh:ro
+    environment:
+      - POSTGRES_DB=mem0
+      - POSTGRES_USER=${MEM0_POSTGRES_USER:-mem0}
+      - POSTGRES_PASSWORD=${MEM0_POSTGRES_PASSWORD:-mem0-local-password}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${MEM0_POSTGRES_USER:-mem0} -d mem0"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks:
+      - knowledge-doc-network
+
+  mem0:
+    image: knowledge-doc-mem0:42cf18c
+    container_name: knowledge-doc-mem0
+    restart: always
+    build:
+      context: .
+      dockerfile: docker/mem0/Dockerfile
+    ports:
+      - '8888:8000'
+    volumes:
+      - ./volumes/mem0-history:/app/history
+    environment:
+      - POSTGRES_HOST=mem0-postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=mem0
+      - POSTGRES_USER=${MEM0_POSTGRES_USER:-mem0}
+      - POSTGRES_PASSWORD=${MEM0_POSTGRES_PASSWORD:-mem0-local-password}
+      - POSTGRES_COLLECTION_NAME=memories
+      - APP_DB_NAME=mem0_app
+      - OPENAI_API_KEY=${QWEN_API_KEY:?QWEN_API_KEY is required by Mem0}
+      - OPENAI_BASE_URL=${QWEN_API_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      - MEM0_DEFAULT_LLM_MODEL=qwen-plus
+      - MEM0_DEFAULT_EMBEDDER_MODEL=text-embedding-v2
+      - ADMIN_API_KEY=${MEM0_API_KEY:-knowledge-doc-mem0-local-api-key}
+      - JWT_SECRET=${MEM0_JWT_SECRET:-knowledge-doc-mem0-local-jwt-secret-change-me}
+      - AUTH_DISABLED=false
+      - DASHBOARD_URL=${MEM0_DASHBOARD_URL:-http://localhost:3006}
+      - MEM0_TELEMETRY=${MEM0_TELEMETRY:-false}
+    depends_on:
+      mem0-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/docs')"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    networks:
+      - knowledge-doc-network
+
+  mem0-dashboard:
+    image: knowledge-doc-mem0-dashboard:42cf18c
+    container_name: knowledge-doc-mem0-dashboard
+    restart: always
+    build:
+      context: .
+      dockerfile: docker/mem0/Dockerfile.dashboard
+    ports:
+      - '3006:3000'
+    environment:
+      - NEXT_PUBLIC_API_URL=${MEM0_PUBLIC_API_URL:-http://localhost:8888}
+      - API_INTERNAL_URL=http://mem0:8000
+      - NEXT_PUBLIC_INSTANCE_NAME=Knowledge Quiz Mem0
+    depends_on:
+      mem0:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:3000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - knowledge-doc-network
+
   elasticsearch:
     image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
     container_name: knowledge-doc-es

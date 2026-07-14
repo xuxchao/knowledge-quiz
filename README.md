@@ -56,6 +56,7 @@ knowledge-quiz2/
 - pnpm >= 10.x
 - PostgreSQL >= 16.x
 - Redis >= 7.x
+- Docker Desktop（用于 Mem0、pgvector 及其他基础设施）
 
 ### 安装依赖
 
@@ -63,6 +64,20 @@ knowledge-quiz2/
 # 安装所有依赖（工作区模式）
 pnpm install
 ```
+
+### 启动基础设施
+
+```bash
+docker compose up -d --build
+```
+
+Mem0 使用现有的 `QWEN_API_KEY` 和 `QWEN_API_BASE_URL`。首次启动前请根据 `.env.example` 配置根目录 `.env`。本地服务地址：
+
+- Mem0 API 与 OpenAPI：`http://localhost:8888/docs`
+- Mem0 可视化 Dashboard：`http://localhost:3006`
+- Mem0 pgvector：`localhost:8432`
+
+Dashboard 首次打开时需要创建管理员账号。NestJS 后端通过 `MEM0_API_KEY` 调用 Mem0；生产环境必须显式设置 `MEM0_API_KEY`、`MEM0_JWT_SECRET` 和 `MEM0_POSTGRES_PASSWORD`。
 
 ### 启动后端
 
@@ -86,6 +101,7 @@ pnpm run dev
 - 文档检索
 - 用户认证与授权
 - 多模态内容支持
+- Redis 短期记忆与 Mem0 长期语义记忆
 
 ## 开发规范
 

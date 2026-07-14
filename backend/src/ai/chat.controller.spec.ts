@@ -58,6 +58,7 @@ describe('ChatController', () => {
           provide: MemoryService,
           useValue: {
             saveShortTermMemory: jest.fn().mockResolvedValue(undefined),
+            saveLongTermMemory: jest.fn().mockResolvedValue(undefined),
             getRelevantMemories: jest.fn().mockResolvedValue([]),
           },
         },
@@ -185,6 +186,10 @@ describe('ChatController', () => {
         score: 0.91,
         chunkId: 'chunk-1',
       }),
+    ]);
+    expect(memoryService.saveLongTermMemory).toHaveBeenCalledWith('user-1', [
+      { role: 'user', content: '文档说了什么？' },
+      { role: 'assistant', content: '这是回答' },
     ]);
   });
 });

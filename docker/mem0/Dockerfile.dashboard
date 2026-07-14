@@ -1,0 +1,39 @@
+FROM node:20-alpine AS builder
+
+ARG MEM0_COMMIT=42cf18c4e6adb448e981aa1c7b55c1602b0cb670
+
+RUN apk add --no-cache tar
+ADD https://github.com/mem0ai/mem0/archive/${MEM0_COMMIT}.tar.gz /tmp/mem0.tar.gz
+RUN mkdir -p /source \
+    && tar -xzf /tmp/mem0.tar.gz --strip-components=1 -C /source \
+    && rm /tmp/mem0.tar.gz
+
+WORKDIR /source/server/dashboard
+RUN corepack enable && pnpm install --frozen-lockfile
+
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NEXT_PUBLIC_API_URL=NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_INSTANCE_NAME=NEXT_PUBLIC_INSTANCE_NAME
+RUN pnpm build
+
+FROM node:20-alpine AS runtime
+
+WORKDIR /app
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV PORT=3000
+ENV HOSTNAME=0.0.0.0
+
+RUN addgroup --system --gid 1001 nodejs \
+    && adduser --system --uid 1001 nextjs
+
+COPY --from=builder /source/server/dashboard/public ./public
+COPY --from=builder --chown=nextjs:nodejs /source/server/dashboard/.next/standalone ./
+COPY --from=builder --chown=nextjs:nodejs /source/server/dashboard/.next/static ./.next/static
+COPY --from=builder --chown=nextjs:nodejs /source/server/dashboard/entrypoint.sh /home/nextjs/entrypoint.sh
+RUN chmod +x /home/nextjs/entrypoint.sh
+
+USER nextjs
+EXPOSE 3000
+ENTRYPOINT ["/home/nextjs/entrypoint.sh"]
+CMD ["node", "server.js"]

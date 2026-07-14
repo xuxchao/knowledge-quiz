@@ -2,6 +2,11 @@ import { Entity, Column, PrimaryGeneratedColumn, CreateDateColumn, UpdateDateCol
 import type { Relation } from 'typeorm';
 import { Message } from './message.entity';
 
+export interface MessagePageInfo {
+  nextCursor: string | null;
+  hasMore: boolean;
+}
+
 @Entity('conversations')
 @Index('IDX_conversations_user_updated', ['userId', 'updatedAt'])
 export class Conversation {
@@ -20,6 +25,18 @@ export class Conversation {
   @Column({ type: 'integer', default: 0 })
   messageCount: number;
 
+  @Column({ type: 'text', nullable: true })
+  summary: string | null;
+
+  @Column({ type: 'uuid', nullable: true })
+  summaryThroughMessageId: string | null;
+
+  @Column({ type: 'integer', default: 0 })
+  summaryVersion: number;
+
+  @Column({ type: 'timestamp', nullable: true })
+  summaryUpdatedAt: Date | null;
+
   @CreateDateColumn({ type: 'timestamp' })
   createdAt: Date;
 
@@ -28,4 +45,6 @@ export class Conversation {
 
   @OneToMany(() => Message, (message) => message.conversation)
   messages: Relation<Message[]>;
+
+  messagePage?: MessagePageInfo;
 }

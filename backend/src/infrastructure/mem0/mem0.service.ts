@@ -7,6 +7,11 @@ export interface Mem0Message {
   content: string;
 }
 
+export interface Mem0MemoryScope {
+  userId?: string;
+  runId?: string;
+}
+
 export interface Mem0MemoryRecord {
   id: string;
   memory: string;
@@ -39,24 +44,49 @@ export class Mem0Service {
   }
 
   @LogServiceCall()
-  async addMemory(userId: string, messages: Mem0Message[], metadata: Record<string, unknown> = {}): Promise<void> {
+  async addMemory(
+    scope: Mem0MemoryScope,
+    messages: Mem0Message[],
+    metadata: Record<string, unknown> = {},
+    prompt?: string,
+  ): Promise<void> {
     await this.request('/memories', {
       method: 'POST',
       body: JSON.stringify({
         messages,
-        user_id: userId,
+        ...(scope.userId ? { user_id: scope.userId } : {}),
+        ...(scope.runId ? { run_id: scope.runId } : {}),
         metadata,
+        ...(prompt ? { prompt } : {}),
       }),
     });
   }
 
   @LogServiceCall()
   async searchMemories(query: string, userId: string, limit = 10): Promise<Mem0MemoryRecord[]> {
+    return this.searchByScope(query, { userId }, limit);
+  }
+
+  @LogServiceCall()
+  async searchConversationMemories(query: string, conversationId: string, limit = 10): Promise<Mem0MemoryRecord[]> {
+    return this.searchByScope(query, { runId: conversationId }, limit);
+  }
+
+  @LogServiceCall()
+  async deleteConversationMemories(conversationId: string): Promise<void> {
+    const params = new URLSearchParams({ run_id: conversationId });
+    await this.request(`/memories?${params.toString()}`, { method: 'DELETE' });
+  }
+
+  private async searchByScope(query: string, scope: Mem0MemoryScope, limit: number): Promise<Mem0MemoryRecord[]> {
     const response = await this.request('/search', {
       method: 'POST',
       body: JSON.stringify({
         query,
-        filters: { user_id: userId },
+        filters: {
+          ...(scope.userId ? { user_id: scope.userId } : {}),
+          ...(scope.runId ? { run_id: scope.runId } : {}),
+        },
         top_k: limit,
       }),
     });

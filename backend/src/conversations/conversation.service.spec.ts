@@ -37,6 +37,8 @@ describe('ConversationService', () => {
             create: jest.fn().mockImplementation((data) => ({ id: 'msg-id', ...data })),
             save: jest.fn().mockResolvedValue({ id: 'msg-id', content: 'test' }),
             find: jest.fn().mockResolvedValue([]),
+            findOne: jest.fn().mockResolvedValue(null),
+            createQueryBuilder: jest.fn(),
             delete: jest.fn().mockResolvedValue({ affected: 1 }),
           },
         },
@@ -85,7 +87,7 @@ describe('ConversationService', () => {
   });
 
   describe('findById', () => {
-    it('should return conversation with messages', async () => {
+    it('should return conversation metadata without loading messages', async () => {
       const mockConversation = {
         id: 'test-id',
         name: 'Test',
@@ -93,8 +95,6 @@ describe('ConversationService', () => {
       };
 
       conversationRepository.findOne.mockResolvedValue(mockConversation);
-      messageRepository.find.mockResolvedValue(mockConversation.messages);
-
       const result = await service.findById('test-id');
 
       expect(result).toEqual(mockConversation);
@@ -102,12 +102,7 @@ describe('ConversationService', () => {
       expect(conversationRepository.findOne).toHaveBeenCalledWith({
         where: { id: 'test-id' },
       });
-      expect(messageRepository.find).toHaveBeenCalledWith({
-        where: { conversationId: 'test-id' },
-        order: { createdAt: 'ASC' },
-        skip: 0,
-        take: 100,
-      });
+      expect(messageRepository.find).not.toHaveBeenCalled();
     });
 
     it('should return null if conversation not found', async () => {
@@ -235,6 +230,7 @@ describe('ConversationService', () => {
         role: MessageRole.USER,
         content: 'Hello',
         references: [],
+        tokenCount: null,
       });
       expect(messageRepository.save).toHaveBeenCalled();
       expect(conversationRepository.update).toHaveBeenCalledWith(
@@ -252,6 +248,7 @@ describe('ConversationService', () => {
         role: MessageRole.USER,
         content: '',
         references: [],
+        tokenCount: null,
       });
     });
   });
@@ -282,6 +279,35 @@ describe('ConversationService', () => {
       const result = await service.getMessages('conv-1');
 
       expect(result).toEqual([]);
+    });
+  });
+
+  describe('getMessagePage', () => {
+    it('returns the latest page in chronological order with a stable cursor', async () => {
+      const rows = [
+        { id: '00000000-0000-0000-0000-000000000003', createdAt: new Date('2026-01-03') },
+        { id: '00000000-0000-0000-0000-000000000002', createdAt: new Date('2026-01-02') },
+        { id: '00000000-0000-0000-0000-000000000001', createdAt: new Date('2026-01-01') },
+      ];
+      const query = {
+        where: jest.fn().mockReturnThis(),
+        andWhere: jest.fn().mockReturnThis(),
+        orderBy: jest.fn().mockReturnThis(),
+        addOrderBy: jest.fn().mockReturnThis(),
+        take: jest.fn().mockReturnThis(),
+        getMany: jest.fn().mockResolvedValue(rows),
+      };
+      messageRepository.createQueryBuilder.mockReturnValue(query);
+
+      const page = await service.getMessagePage('conv-1', 2);
+
+      expect(page.messages.map((message) => message.id)).toEqual([
+        '00000000-0000-0000-0000-000000000002',
+        '00000000-0000-0000-0000-000000000003',
+      ]);
+      expect(page.hasMore).toBe(true);
+      expect(page.nextCursor).toEqual(expect.any(String));
+      expect(query.take).toHaveBeenCalledWith(3);
     });
   });
 });

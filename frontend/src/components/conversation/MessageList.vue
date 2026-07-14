@@ -10,6 +10,12 @@ const props = defineProps<{
   messages: Message[];
   isLoading: boolean;
   isConversationLoading: boolean;
+  isLoadingOlderMessages: boolean;
+  hasOlderMessages: boolean;
+}>();
+
+const emit = defineEmits<{
+  loadOlder: [];
 }>();
 
 const md = new MarkdownIt({ html: false });
@@ -26,6 +32,7 @@ const {
 } = useSpeechSynthesis();
 
 const messageKey = (message: Message, index: number): string => message.id || `message-${index}`;
+let pendingPrependHeight: number | null = null;
 
 const scrollToBottom = async (): Promise<void> => {
   await nextTick();
@@ -37,6 +44,7 @@ const scrollToBottom = async (): Promise<void> => {
 watch(
   () => props.messages.length,
   () => {
+    if (pendingPrependHeight != null) return;
     void scrollToBottom();
   },
 );
@@ -47,11 +55,43 @@ watch(
     void scrollToBottom();
   },
 );
+
+watch(
+  () => props.isLoadingOlderMessages,
+  async (isLoading, wasLoading) => {
+    if (isLoading || !wasLoading || pendingPrependHeight == null) return;
+    await nextTick();
+    if (containerRef.value) {
+      containerRef.value.scrollTop += containerRef.value.scrollHeight - pendingPrependHeight;
+    }
+    pendingPrependHeight = null;
+  },
+);
+
+const handleScroll = (): void => {
+  const container = containerRef.value;
+  if (
+    !container ||
+    container.scrollTop > 80 ||
+    props.isLoadingOlderMessages ||
+    !props.hasOlderMessages
+  )
+    return;
+  pendingPrependHeight = container.scrollHeight;
+  emit('loadOlder');
+};
 </script>
 
 <template>
-  <div ref="messageContainer" class="flex-1 overflow-y-auto p-6">
+  <div ref="messageContainer" class="flex-1 overflow-y-auto p-6" @scroll.passive="handleScroll">
     <div class="max-w-3xl mx-auto space-y-6">
+      <div
+        v-if="isLoadingOlderMessages"
+        class="flex items-center justify-center gap-2 py-2 text-gray-500"
+      >
+        <LoaderCircle class="w-4 h-4 animate-spin" />
+        <span class="text-sm">正在加载更早消息</span>
+      </div>
       <div
         v-for="(msg, index) in messages"
         :key="msg.id || index"

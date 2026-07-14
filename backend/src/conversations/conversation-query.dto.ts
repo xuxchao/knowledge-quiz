@@ -20,14 +20,19 @@ export class ConversationQueryDto {
 }
 
 export class MessageQueryDto {
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page = 1;
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  userId?: string;
 
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(100)
-  limit = 100;
+  limit = 50;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(500)
+  before?: string;
 }

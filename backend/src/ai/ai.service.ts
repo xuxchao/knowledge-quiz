@@ -3,8 +3,12 @@ import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
 import type { AIMessageChunk, BaseMessage } from '@langchain/core/messages';
 import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
-import { ChatPromptTemplate } from '@langchain/core/prompts';
 import { LoggerService, LogServiceCall } from '../common/logger';
+
+export interface ConversationPromptMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+}
 
 @Injectable()
 export class AiService implements OnModuleInit {
@@ -12,7 +16,7 @@ export class AiService implements OnModuleInit {
   private chatModel: ChatOpenAI;
   private embeddings: OpenAIEmbeddings;
   private visionModel: ChatOpenAI;
-  private chatPrompt: ChatPromptTemplate;
+  private summaryModel: ChatOpenAI;
 
   constructor(private configService: ConfigService) {}
 
@@ -34,7 +38,7 @@ export class AiService implements OnModuleInit {
       },
       model: 'qwen-plus',
       temperature: 0.7,
-      maxTokens: 4096,
+      maxTokens: Number(this.configService.get<string>('AI_MAX_OUTPUT_TOKENS', '4096')),
       streaming: true,
     });
 
@@ -54,10 +58,13 @@ export class AiService implements OnModuleInit {
       maxTokens: 2048,
     });
 
-    this.chatPrompt = ChatPromptTemplate.fromMessages([
-      ['system', '{systemPrompt}'],
-      ['human', '{query}'],
-    ]);
+    this.summaryModel = new ChatOpenAI({
+      apiKey,
+      configuration: { baseURL: apiBaseUrl },
+      model: 'qwen-plus',
+      temperature: 0.1,
+      maxTokens: Number(this.configService.get<string>('AI_SUMMARY_MAX_TOKENS', '2048')),
+    });
 
     this.logger.info('AI服务初始化完成');
   }
@@ -95,20 +102,51 @@ export class AiService implements OnModuleInit {
   }
 
   @LogServiceCall()
-  async streamChain(
-    query: string,
+  async streamConversation(
+    messages: ConversationPromptMessage[],
     systemPrompt: string,
     callbacks: BaseCallbackHandler[] = [],
   ): Promise<AsyncIterable<AIMessageChunk>> {
-    const chain = this.chatPrompt.pipe(this.chatModel);
-    return chain.stream(
-      { query, systemPrompt },
+    const langChainMessages = messages.map((message) => {
+      const role = message.role === 'user' ? 'human' : message.role === 'assistant' ? 'ai' : 'system';
+      return [role, message.content] as ['human' | 'ai' | 'system', string];
+    });
+    return this.chatModel.stream([['system', systemPrompt], ...langChainMessages], {
+      callbacks,
+      runName: 'conversation.chat',
+      tags: ['chat'],
+    });
+  }
+
+  @LogServiceCall()
+  async generateConversationSummary(
+    previousSummary: string | null,
+    messages: ConversationPromptMessage[],
+    callbacks: BaseCallbackHandler[] = [],
+  ): Promise<string> {
+    const response = await this.summaryModel.invoke(
+      [
+        {
+          role: 'system',
+          content:
+            '你是会话压缩助手。将已有摘要和新增对话合并成独立可读的中文摘要。必须保留用户目标、事实、约束、决定、重要实体、未解决问题和必要引用；删除寒暄、重复及无关细节。不要编造信息。只输出摘要正文。',
+        },
+        {
+          role: 'user',
+          content: `已有摘要：\n${previousSummary || '无'}\n\n新增对话：\n${messages
+            .map((item) => `${item.role}: ${item.content}`)
+            .join('\n')}`,
+        },
+      ],
       {
         callbacks,
-        runName: 'conversation.chat',
-        tags: ['chat'],
+        runName: 'conversation.summary',
+        tags: ['chat', 'summary'],
       },
     );
+    const summary = this.extractMessageContent(response).trim();
+    if (!summary) throw new Error('摘要模型返回空内容');
+    return summary;
   }
 
   @LogServiceCall()

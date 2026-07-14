@@ -6,6 +6,8 @@ import { MemoryService } from '../memory/memory.service';
 import { RetrievalService } from './retrieval.service';
 import { LangfuseService } from '../infrastructure/langfuse/langfuse.service';
 import { MessageRole } from '../entities/message.entity';
+import { ConversationContextService } from './conversation-context.service';
+import { TokenBudgetService } from './token-budget.service';
 
 jest.mock('ai', () => ({
   createUIMessageStream: jest.fn((options) => {
@@ -42,6 +44,7 @@ describe('ChatController', () => {
             create: jest.fn().mockResolvedValue({ id: 'conv-1', title: '知识库检索' }),
             updateTitle: jest.fn().mockResolvedValue(undefined),
             createMessage: jest.fn().mockResolvedValue({ id: 'msg-1' }),
+            findOwnedById: jest.fn().mockResolvedValue({ id: 'conv-1', userId: 'user-1' }),
           },
         },
         {
@@ -49,7 +52,7 @@ describe('ChatController', () => {
           useValue: {
             generateConversationTitle: jest.fn().mockResolvedValue('知识库检索'),
             generateEmbedding: jest.fn().mockResolvedValue([0.1, 0.2]),
-            streamChain: jest.fn().mockResolvedValue({
+            streamConversation: jest.fn().mockResolvedValue({
               [Symbol.asyncIterator]: async function* () {},
             }),
           },
@@ -57,8 +60,8 @@ describe('ChatController', () => {
         {
           provide: MemoryService,
           useValue: {
-            saveShortTermMemory: jest.fn().mockResolvedValue(undefined),
-            saveLongTermMemory: jest.fn().mockResolvedValue(undefined),
+            saveUserMemory: jest.fn().mockResolvedValue(undefined),
+            saveConversationMemory: jest.fn().mockResolvedValue(undefined),
             getRelevantMemories: jest.fn().mockResolvedValue([]),
           },
         },
@@ -75,6 +78,18 @@ describe('ChatController', () => {
             flush: jest.fn().mockResolvedValue(undefined),
           },
         },
+        {
+          provide: ConversationContextService,
+          useValue: {
+            validateUserMessage: jest.fn().mockReturnValue(4),
+            prepare: jest.fn().mockResolvedValue({
+              messages: [{ role: 'user', content: '继续讲一下' }],
+              estimatedTokens: 100,
+              summarized: false,
+            }),
+          },
+        },
+        { provide: TokenBudgetService, useValue: { countText: jest.fn().mockReturnValue(4) } },
       ],
     }).compile();
 
@@ -117,6 +132,8 @@ describe('ChatController', () => {
       'conv-1',
       MessageRole.USER,
       '怎么检索知识库里的内容？',
+      [],
+      4,
     );
   });
 
@@ -141,10 +158,11 @@ describe('ChatController', () => {
       conversationId: 'conv-1',
       userId: 'user-1',
     });
-    expect(aiService.streamChain).toHaveBeenCalledWith('继续讲一下', expect.stringContaining('知识库内容'), [
-      { name: 'langfuse-handler' },
-    ]);
-    expect(memoryService.saveShortTermMemory).toHaveBeenCalledWith('conv-1', '继续讲一下');
+    expect(aiService.streamConversation).toHaveBeenCalledWith(
+      [{ role: 'user', content: '继续讲一下' }],
+      expect.stringContaining('知识库内容'),
+      [{ name: 'langfuse-handler' }],
+    );
     expect(retrievalService.retrieve).toHaveBeenCalledWith('继续讲一下', undefined);
   });
 
@@ -176,18 +194,28 @@ describe('ChatController', () => {
     };
     await streamOptions.onFinal('这是回答');
 
-    expect(conversationService.createMessage).toHaveBeenLastCalledWith('conv-1', MessageRole.ASSISTANT, '这是回答', [
-      expect.objectContaining({
-        documentId: 'doc-1',
-        documentName: '产品说明.pdf',
-        downloadUrl: '/api/documents/doc-1/download',
-        chunkIndex: 2,
-        content: '被引用的原文内容',
-        score: 0.91,
-        chunkId: 'chunk-1',
-      }),
+    expect(conversationService.createMessage).toHaveBeenLastCalledWith(
+      'conv-1',
+      MessageRole.ASSISTANT,
+      '这是回答',
+      [
+        expect.objectContaining({
+          documentId: 'doc-1',
+          documentName: '产品说明.pdf',
+          downloadUrl: '/api/documents/doc-1/download',
+          chunkIndex: 2,
+          content: '被引用的原文内容',
+          score: 0.91,
+          chunkId: 'chunk-1',
+        }),
+      ],
+      4,
+    );
+    expect(memoryService.saveUserMemory).toHaveBeenCalledWith('user-1', 'conv-1', [
+      { role: 'user', content: '文档说了什么？' },
+      { role: 'assistant', content: '这是回答' },
     ]);
-    expect(memoryService.saveLongTermMemory).toHaveBeenCalledWith('user-1', [
+    expect(memoryService.saveConversationMemory).toHaveBeenCalledWith('conv-1', 'user-1', [
       { role: 'user', content: '文档说了什么？' },
       { role: 'assistant', content: '这是回答' },
     ]);

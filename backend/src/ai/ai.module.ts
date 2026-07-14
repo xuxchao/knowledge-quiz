@@ -9,6 +9,8 @@ import { ElasticsearchModule } from '../infrastructure/elasticsearch/elasticsear
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { Chunk } from '../entities/chunk.entity';
 import { RetrievalService } from './retrieval.service';
+import { ConversationContextService } from './conversation-context.service';
+import { TokenBudgetService } from './token-budget.service';
 
 @Module({
   imports: [
@@ -20,7 +22,7 @@ import { RetrievalService } from './retrieval.service';
     TypeOrmModule.forFeature([Chunk]),
   ],
   controllers: [ChatController],
-  providers: [AiService, RetrievalService],
-  exports: [AiService, RetrievalService],
+  providers: [AiService, RetrievalService, ConversationContextService, TokenBudgetService],
+  exports: [AiService, RetrievalService, ConversationContextService, TokenBudgetService],
 })
 export class AiModule {}

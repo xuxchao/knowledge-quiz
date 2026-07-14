@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { Mem0RequestError, Mem0Service } from './mem0.service';
+import { Mem0Service } from './mem0.service';
 
 describe('Mem0Service', () => {
   let service: Mem0Service;
@@ -23,15 +23,33 @@ describe('Mem0Service', () => {
       { role: 'assistant' as const, content: '我会记住' },
     ];
 
-    await service.addMemory('user-1', messages, { conversationId: 'conv-1' });
+    await service.addMemory({ userId: 'user-1' }, messages, { conversationId: 'conv-1' });
 
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe('http://mem0.test/memories');
     expect(init.headers).toEqual(expect.objectContaining({ 'X-API-Key': 'test-api-key' }));
-    expect(JSON.parse(String(init.body))).toEqual({
+    expect(parseRequestBody(init)).toEqual({
       messages,
       user_id: 'user-1',
       metadata: { conversationId: 'conv-1' },
+    });
+  });
+
+  it('writes and searches conversation memories with run id isolation', async () => {
+    fetchMock.mockResolvedValue(response(200, { results: [] }));
+
+    await service.addMemory({ runId: 'conv-1' }, [{ role: 'user', content: '继续这个方案' }]);
+    await service.searchConversationMemories('方案', 'conv-1', 5);
+
+    expect(parseRequestBody(fetchMock.mock.calls[0][1] as RequestInit)).toEqual({
+      messages: [{ role: 'user', content: '继续这个方案' }],
+      run_id: 'conv-1',
+      metadata: {},
+    });
+    expect(parseRequestBody(fetchMock.mock.calls[1][1] as RequestInit)).toEqual({
+      query: '方案',
+      filters: { run_id: 'conv-1' },
+      top_k: 5,
     });
   });
 
@@ -53,7 +71,7 @@ describe('Mem0Service', () => {
     const result = await service.searchMemories('喜欢什么电影', 'user-1', 10);
 
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(JSON.parse(String(init.body))).toEqual({
+    expect(parseRequestBody(init)).toEqual({
       query: '喜欢什么电影',
       filters: { user_id: 'user-1' },
       top_k: 10,
@@ -157,5 +175,10 @@ describe('Mem0Service', () => {
       status,
       text: jest.fn().mockResolvedValue(body),
     } as unknown as Response;
+  }
+
+  function parseRequestBody(init: RequestInit): unknown {
+    if (typeof init.body !== 'string') throw new Error('Expected a string request body');
+    return JSON.parse(init.body) as unknown;
   }
 });

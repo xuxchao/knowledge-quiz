@@ -12,10 +12,13 @@ const {
   messages,
   isLoading,
   isConversationLoading,
+  isLoadingOlderMessages,
+  hasOlderMessages,
   fetchConversations,
   selectConversation,
   createNewConversation,
   sendMessage,
+  loadOlderMessages,
   deleteConversation,
 } = useConversation();
 
@@ -40,6 +43,9 @@ onMounted(() => {
           :messages="messages"
           :is-loading="isLoading"
           :is-conversation-loading="isConversationLoading"
+          :is-loading-older-messages="isLoadingOlderMessages"
+          :has-older-messages="hasOlderMessages"
+          @load-older="loadOlderMessages"
         />
         <ChatInput :disabled="isLoading" @send="sendMessage" />
       </template>

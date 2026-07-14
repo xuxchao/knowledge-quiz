@@ -19,6 +19,10 @@ export function useConversation() {
   const conversations = shallowRef<Conversation[]>([]);
   const currentConversation = shallowRef<Conversation | null>(null);
   const isConversationLoading = shallowRef(false);
+  const isLoadingOlderMessages = shallowRef(false);
+  const olderMessagesCursor = shallowRef<string | null>(null);
+  const hasOlderMessages = shallowRef(false);
+  const currentUserId = 'default';
   let selectionRequestId = 0;
 
   const {
@@ -33,7 +37,7 @@ export function useConversation() {
         body: {
           messages,
           conversationId: currentConversation.value?.id || undefined,
-          userId: currentConversation.value?.userId || 'default',
+          userId: currentConversation.value?.userId || currentUserId,
         },
       }),
     }),
@@ -66,7 +70,9 @@ export function useConversation() {
 
   const fetchConversations = async (): Promise<void> => {
     try {
-      const response = await http.get<ApiResponse<Conversation[]>>('/api/conversations');
+      const response = await http.get<ApiResponse<Conversation[]>>('/api/conversations', {
+        params: { userId: currentUserId },
+      });
       conversations.value = response.data.data || [];
       if (conversations.value.length > 0 && !currentConversation.value?.id) {
         selectConversation(conversations.value[0]);
@@ -80,15 +86,21 @@ export function useConversation() {
     const requestId = ++selectionRequestId;
     currentConversation.value = conversation;
     aiMessages.value = [];
+    olderMessagesCursor.value = null;
+    hasOlderMessages.value = false;
     isConversationLoading.value = true;
 
     void http
-      .get<ApiResponse<Conversation>>(`/api/conversations/get/${conversation.id}`)
+      .get<ApiResponse<Conversation>>(`/api/conversations/get/${conversation.id}`, {
+        params: { userId: conversation.userId || currentUserId, limit: 50 },
+      })
       .then((response) => {
         if (requestId !== selectionRequestId) return;
         const details = response.data.data;
         currentConversation.value = details;
         aiMessages.value = toUiMessages(details.messages || []);
+        olderMessagesCursor.value = details.messagePage?.nextCursor ?? null;
+        hasOlderMessages.value = details.messagePage?.hasMore ?? false;
       })
       .catch((error: unknown) => {
         if (requestId !== selectionRequestId) return;
@@ -114,6 +126,38 @@ export function useConversation() {
     aiMessages.value = [];
     selectionRequestId += 1;
     isConversationLoading.value = false;
+    isLoadingOlderMessages.value = false;
+    olderMessagesCursor.value = null;
+    hasOlderMessages.value = false;
+  };
+
+  const loadOlderMessages = async (): Promise<void> => {
+    const conversation = currentConversation.value;
+    const cursor = olderMessagesCursor.value;
+    if (!conversation?.id || !cursor || !hasOlderMessages.value || isLoadingOlderMessages.value)
+      return;
+
+    isLoadingOlderMessages.value = true;
+    try {
+      const response = await http.get<ApiResponse<Conversation>>(
+        `/api/conversations/get/${conversation.id}`,
+        {
+          params: { userId: conversation.userId || currentUserId, limit: 50, before: cursor },
+        },
+      );
+      const details = response.data.data;
+      const existingIds = new Set(aiMessages.value.map((message) => message.id));
+      const olderMessages = toUiMessages(details.messages || []).filter(
+        (message) => !existingIds.has(message.id),
+      );
+      aiMessages.value = [...olderMessages, ...aiMessages.value];
+      olderMessagesCursor.value = details.messagePage?.nextCursor ?? null;
+      hasOlderMessages.value = details.messagePage?.hasMore ?? false;
+    } catch (error: unknown) {
+      console.error('Failed to load older conversation messages:', error);
+    } finally {
+      isLoadingOlderMessages.value = false;
+    }
   };
 
   const sendMessage = (messageText: string): void => {
@@ -124,13 +168,17 @@ export function useConversation() {
   const deleteConversation = async (conversationId: string): Promise<void> => {
     if (!confirm('确定要删除这个会话吗？')) return;
     try {
-      await http.delete(`/api/conversations/delete/${conversationId}`);
+      await http.delete(`/api/conversations/delete/${conversationId}`, {
+        params: { userId: currentUserId },
+      });
       await fetchConversations();
       if (currentConversation.value?.id === conversationId) {
         selectionRequestId += 1;
         currentConversation.value = null;
         aiMessages.value = [];
         isConversationLoading.value = false;
+        olderMessagesCursor.value = null;
+        hasOlderMessages.value = false;
       }
     } catch (error) {
       console.error('Failed to delete conversation:', error);
@@ -155,10 +203,13 @@ export function useConversation() {
     messages,
     isLoading,
     isConversationLoading,
+    isLoadingOlderMessages,
+    hasOlderMessages,
     fetchConversations,
     selectConversation,
     createNewConversation,
     sendMessage,
+    loadOlderMessages,
     deleteConversation,
   };
 }

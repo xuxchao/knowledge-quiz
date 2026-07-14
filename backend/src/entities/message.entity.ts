@@ -26,7 +26,7 @@ export interface DocumentReference {
 }
 
 @Entity('messages')
-@Index('IDX_messages_conversation_created', ['conversationId', 'createdAt'])
+@Index('IDX_messages_conversation_created_id', ['conversationId', 'createdAt', 'id'])
 export class Message {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -50,6 +50,9 @@ export class Message {
 
   @Column({ type: 'json', nullable: true })
   references: DocumentReference[];
+
+  @Column({ type: 'integer', nullable: true })
+  tokenCount: number | null;
 
   @CreateDateColumn({ type: 'timestamp' })
   createdAt: Date;

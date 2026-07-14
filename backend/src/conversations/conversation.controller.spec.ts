@@ -5,6 +5,7 @@ import { ConversationService } from './conversation.service';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import { Conversation } from '../entities/conversation.entity';
 import { Message } from '../entities/message.entity';
+import { MemoryService } from '../memory/memory.service';
 
 describe('ConversationController', () => {
   let controller: ConversationController;
@@ -24,6 +25,7 @@ describe('ConversationController', () => {
           provide: getRepositoryToken(Message),
           useValue: {},
         },
+        { provide: MemoryService, useValue: { deleteConversationMemory: jest.fn().mockResolvedValue(undefined) } },
       ],
     }).compile();
 
@@ -93,7 +95,8 @@ describe('ConversationController', () => {
         ],
       };
 
-      jest.spyOn(conversationService, 'findById').mockResolvedValue(mockConversation as Conversation);
+      jest.spyOn(conversationService, 'findOwnedById').mockResolvedValue(mockConversation as Conversation);
+      jest.spyOn(conversationService, 'findWithMessagePage').mockResolvedValue(mockConversation as Conversation);
 
       const result = await controller.getConversation('1');
 
@@ -102,17 +105,18 @@ describe('ConversationController', () => {
         data: mockConversation,
       });
       expect(result.data.messages).toHaveLength(2);
-      expect(conversationService.findById).toHaveBeenCalledWith('1', 0, 100);
+      expect(conversationService.findOwnedById).toHaveBeenCalledWith('1', 'default');
+      expect(conversationService.findWithMessagePage).toHaveBeenCalledWith('1', 50, undefined);
     });
 
     it('should throw error if conversation not found', async () => {
-      jest.spyOn(conversationService, 'findById').mockResolvedValue(null);
+      jest.spyOn(conversationService, 'findOwnedById').mockResolvedValue(null);
 
       await expect(controller.getConversation('non-existent')).rejects.toThrow();
     });
 
     it('should handle empty id', async () => {
-      jest.spyOn(conversationService, 'findById').mockResolvedValue(null);
+      jest.spyOn(conversationService, 'findOwnedById').mockResolvedValue(null);
 
       await expect(controller.getConversation('')).rejects.toThrow();
     });
@@ -120,7 +124,8 @@ describe('ConversationController', () => {
     it('should handle conversation with no messages', async () => {
       const mockConversation = { id: '1', messages: [] };
 
-      jest.spyOn(conversationService, 'findById').mockResolvedValue(mockConversation as Conversation);
+      jest.spyOn(conversationService, 'findOwnedById').mockResolvedValue(mockConversation as Conversation);
+      jest.spyOn(conversationService, 'findWithMessagePage').mockResolvedValue(mockConversation as Conversation);
 
       const result = await controller.getConversation('1');
 
@@ -132,7 +137,7 @@ describe('ConversationController', () => {
     it('should delete conversation successfully', async () => {
       const mockConversation = { id: '1', messages: [] };
 
-      jest.spyOn(conversationService, 'findById').mockResolvedValue(mockConversation as Conversation);
+      jest.spyOn(conversationService, 'findOwnedById').mockResolvedValue(mockConversation as Conversation);
       jest.spyOn(conversationService, 'delete').mockResolvedValue();
 
       const result = await controller.deleteConversation('1');
@@ -141,18 +146,18 @@ describe('ConversationController', () => {
         success: true,
         message: 'Conversation deleted successfully',
       });
-      expect(jest.spyOn(conversationService, 'findById')).toHaveBeenCalledWith('1');
+      expect(conversationService.findOwnedById).toHaveBeenCalledWith('1', 'default');
       expect(jest.spyOn(conversationService, 'delete')).toHaveBeenCalledWith('1');
     });
 
     it('should throw error if conversation not found', async () => {
-      jest.spyOn(conversationService, 'findById').mockResolvedValue(null);
+      jest.spyOn(conversationService, 'findOwnedById').mockResolvedValue(null);
 
       await expect(controller.deleteConversation('non-existent')).rejects.toThrow();
     });
 
     it('should handle empty id', async () => {
-      jest.spyOn(conversationService, 'findById').mockResolvedValue(null);
+      jest.spyOn(conversationService, 'findOwnedById').mockResolvedValue(null);
 
       await expect(controller.deleteConversation('')).rejects.toThrow();
     });

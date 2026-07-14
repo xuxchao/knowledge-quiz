@@ -21,6 +21,10 @@ export interface Conversation {
   title?: string;
   messageCount?: number;
   messages?: Message[];
+  messagePage?: {
+    nextCursor: string | null;
+    hasMore: boolean;
+  };
   createdAt: Date;
   updatedAt: Date;
 }

@@ -79,10 +79,7 @@ export class RetrievalService {
   }
 
   @LogServiceCall()
-  fuse(
-    vectorHits: VectorSearchHit[],
-    keywordHits: SearchChunk[],
-  ): RetrievedChunk[] {
+  fuse(vectorHits: VectorSearchHit[], keywordHits: SearchChunk[]): RetrievedChunk[] {
     const results = new Map<string, RetrievedChunk>();
     const k = 60;
     vectorHits.forEach((hit, rank) => {

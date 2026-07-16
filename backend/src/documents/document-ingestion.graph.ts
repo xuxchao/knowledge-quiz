@@ -6,7 +6,11 @@ import { GraphRun } from '../entities/graph-run.entity';
 import { GraphCheckpointService } from '../graph/graph-checkpoint.service';
 import { GraphRunService } from '../graph/graph-run.service';
 import { LoggerService, LogServiceCall } from '../common/logger';
-import { FileProcessorService, ParsedDocument, StructuredChunk } from '../infrastructure/file-processor/file-processor.service';
+import {
+  FileProcessorService,
+  ParsedDocument,
+  StructuredChunk,
+} from '../infrastructure/file-processor/file-processor.service';
 import { ChunkService } from './chunk.service';
 import { DocumentService } from './document.service';
 import { IngestionArtifactService } from './ingestion-artifact.service';
@@ -65,7 +69,7 @@ export class DocumentIngestionGraph {
       metadata: { runId: run.id, documentId: run.aggregateId },
     };
     const checkpoint = await checkpointer.get(config);
-    await graph.invoke(checkpoint ? null : ({ ...run.input, runId: run.id } as DocumentIngestionInput), config);
+    await graph.invoke(checkpoint ? null : { ...run.input, runId: run.id }, config);
   }
 
   @LogServiceCall()

@@ -6,7 +6,9 @@ import { DocumentIngestionService } from './document-ingestion.service';
 describe('DocumentIngestionService', () => {
   it('should create a deterministic graph run and expose the compatible status shape', async () => {
     const documentService = {
-      findById: jest.fn().mockResolvedValue({ id: 'doc-1', type: FileType.PDF, processingStage: ProcessingStage.QUEUED }),
+      findById: jest
+        .fn()
+        .mockResolvedValue({ id: 'doc-1', type: FileType.PDF, processingStage: ProcessingStage.QUEUED }),
       update: jest.fn().mockResolvedValue(undefined),
     };
     const graphRunService = {

@@ -96,9 +96,9 @@ describe('ChunkService consistency', () => {
     const stagingService = new ChunkService(
       {} as never,
       {
-        transaction: jest.fn().mockImplementation((callback) =>
-          callback({ getRepository: jest.fn().mockReturnValue(stagingRepository) }),
-        ),
+        transaction: jest
+          .fn()
+          .mockImplementation((callback) => callback({ getRepository: jest.fn().mockReturnValue(stagingRepository) })),
       } as never,
       {} as never,
       {} as never,

@@ -76,7 +76,10 @@ export class ChatController {
       },
       onError: (error: unknown) => {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        this.logger.error(`LangGraph对话响应失败 - 错误: ${errorMessage}`, error instanceof Error ? error.stack : undefined);
+        this.logger.error(
+          `LangGraph对话响应失败 - 错误: ${errorMessage}`,
+          error instanceof Error ? error.stack : undefined,
+        );
         return '对话响应生成失败';
       },
     });

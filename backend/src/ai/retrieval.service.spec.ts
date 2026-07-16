@@ -79,8 +79,6 @@ describe('RetrievalService', () => {
       configService as never,
     );
 
-    await expect(service.retrieve('测试')).resolves.toEqual([
-      expect.objectContaining({ chunkId: 'chunk-2' }),
-    ]);
+    await expect(service.retrieve('测试')).resolves.toEqual([expect.objectContaining({ chunkId: 'chunk-2' })]);
   });
 });

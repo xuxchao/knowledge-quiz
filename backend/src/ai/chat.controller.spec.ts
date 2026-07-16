@@ -28,24 +28,26 @@ describe('ChatController', () => {
   });
 
   it('should preserve conversation, citation and text UI stream parts', async () => {
-    graph.stream.mockImplementation(() => thisStream([
-      { type: 'conversation-id', conversationId: 'conv-1' },
-      {
-        type: 'citations',
-        citations: [
-          {
-            documentId: 'doc-1',
-            documentName: '产品说明.pdf',
-            downloadUrl: '/api/documents/doc-1/download',
-            chunkIndex: 2,
-            content: '引用内容',
-            score: 0.9,
-          },
-        ],
-      },
-      { type: 'token', token: '你好' },
-      { type: 'final', response: '你好' },
-    ]));
+    graph.stream.mockImplementation(() =>
+      thisStream([
+        { type: 'conversation-id', conversationId: 'conv-1' },
+        {
+          type: 'citations',
+          citations: [
+            {
+              documentId: 'doc-1',
+              documentName: '产品说明.pdf',
+              downloadUrl: '/api/documents/doc-1/download',
+              chunkIndex: 2,
+              content: '引用内容',
+              score: 0.9,
+            },
+          ],
+        },
+        { type: 'token', token: '你好' },
+        { type: 'final', response: '你好' },
+      ]),
+    );
 
     await controller.chat(
       {

@@ -13,6 +13,9 @@ import { AiModule } from '../ai/ai.module';
 import { RedisModule } from '../infrastructure/redis/redis.module';
 import { DocumentIngestionService } from './document-ingestion.service';
 import { ElasticsearchModule } from '../infrastructure/elasticsearch/elasticsearch.module';
+import { IngestionArtifactService } from './ingestion-artifact.service';
+import { DocumentIngestionGraph } from './document-ingestion.graph';
+import { DocumentIngestionWorker } from './document-ingestion.worker';
 
 @Module({
   imports: [
@@ -25,7 +28,14 @@ import { ElasticsearchModule } from '../infrastructure/elasticsearch/elasticsear
     ElasticsearchModule,
   ],
   controllers: [DocumentController, ChunkController],
-  providers: [DocumentService, ChunkService, DocumentIngestionService],
+  providers: [
+    DocumentService,
+    ChunkService,
+    DocumentIngestionService,
+    IngestionArtifactService,
+    DocumentIngestionGraph,
+    DocumentIngestionWorker,
+  ],
   exports: [DocumentService, ChunkService, DocumentIngestionService],
 })
 export class DocumentModule {}

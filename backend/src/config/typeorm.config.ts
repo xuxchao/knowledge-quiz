@@ -4,6 +4,7 @@ import { Document } from '../entities/document.entity';
 import { Chunk } from '../entities/chunk.entity';
 import { Conversation } from '../entities/conversation.entity';
 import { Message } from '../entities/message.entity';
+import { GraphRun } from '../entities/graph-run.entity';
 
 const formatSql = (sql: string): string => {
   if (!sql) return '';
@@ -83,9 +84,9 @@ export const typeOrmConfig = (configService: ConfigService): TypeOrmModuleOption
     username: configService.get<string>('POSTGRES_USER', 'admin'),
     password: configService.get<string>('POSTGRES_PASSWORD', 'password'),
     database: configService.get<string>('POSTGRES_DB', 'knowledge_doc'),
-    entities: [Document, Chunk, Conversation, Message],
+    entities: [Document, Chunk, Conversation, Message, GraphRun],
     migrations: [__dirname + '/../migrations/**/*{.ts,.js}'],
-    migrationsRun: env === 'production',
+    migrationsRun: env === 'production' && configService.get<string>('TYPEORM_MIGRATIONS_RUN', 'true') !== 'false',
     synchronize: env !== 'production',
     logging,
     logger,

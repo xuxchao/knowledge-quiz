@@ -14,6 +14,12 @@ export interface RetrievedChunk extends SearchChunk {
   rerankScore?: number;
 }
 
+export interface VectorSearchHit {
+  content: string;
+  metadata: Record<string, unknown>;
+  score: number;
+}
+
 @Injectable()
 export class RetrievalService {
   private readonly logger = new LoggerService(RetrievalService.name);
@@ -28,21 +34,53 @@ export class RetrievalService {
 
   @LogServiceCall()
   async retrieve(query: string, documentIds?: string[]): Promise<RetrievedChunk[]> {
-    const normalizedQuery = query.replace(/\s+/g, ' ').trim();
-    const embedding = await this.aiService.generateEmbedding(normalizedQuery);
-    const [vectorHits, keywordHits] = await Promise.all([
-      this.neo4jService.search(embedding, 30, documentIds),
-      this.elasticsearchService.search(normalizedQuery, 30, documentIds),
+    const normalizedQuery = this.normalizeQuery(query);
+    const embedding = await this.embedQuery(normalizedQuery);
+    const [vectorResult, keywordResult] = await Promise.allSettled([
+      this.searchVector(embedding, documentIds),
+      this.searchKeyword(normalizedQuery, documentIds),
     ]);
-    const fused = this.fuse(vectorHits, keywordHits);
+    if (vectorResult.status === 'rejected' && keywordResult.status === 'rejected') {
+      throw new Error('向量检索与关键词检索均不可用');
+    }
+    const fused = this.fuse(
+      vectorResult.status === 'fulfilled' ? vectorResult.value : [],
+      keywordResult.status === 'fulfilled' ? keywordResult.value : [],
+    );
     const reranked = await this.rerank(normalizedQuery, fused.slice(0, 30));
+    return this.selectAndExpand(reranked);
+  }
+
+  @LogServiceCall()
+  normalizeQuery(query: string): string {
+    return query.replace(/\s+/g, ' ').trim();
+  }
+
+  @LogServiceCall()
+  embedQuery(query: string): Promise<number[]> {
+    return this.aiService.generateEmbedding(query);
+  }
+
+  @LogServiceCall()
+  searchVector(embedding: number[], documentIds?: string[]): Promise<VectorSearchHit[]> {
+    return this.neo4jService.search(embedding, 30, documentIds);
+  }
+
+  @LogServiceCall()
+  searchKeyword(query: string, documentIds?: string[]): Promise<SearchChunk[]> {
+    return this.elasticsearchService.search(query, 30, documentIds);
+  }
+
+  @LogServiceCall()
+  async selectAndExpand(reranked: RetrievedChunk[]): Promise<RetrievedChunk[]> {
     const threshold = Number(this.configService.get<string>('RAG_MIN_SCORE', '0.15'));
     const selected = reranked.filter((item) => item.score >= threshold).slice(0, 8);
     return this.expandNeighbors(selected, Number(this.configService.get<string>('RAG_CONTEXT_TOKEN_BUDGET', '6000')));
   }
 
-  private fuse(
-    vectorHits: Array<{ content: string; metadata: Record<string, unknown>; score: number }>,
+  @LogServiceCall()
+  fuse(
+    vectorHits: VectorSearchHit[],
     keywordHits: SearchChunk[],
   ): RetrievedChunk[] {
     const results = new Map<string, RetrievedChunk>();
@@ -76,7 +114,8 @@ export class RetrievalService {
       .sort((a, b) => b.score - a.score);
   }
 
-  private async rerank(query: string, chunks: RetrievedChunk[]): Promise<RetrievedChunk[]> {
+  @LogServiceCall()
+  async rerank(query: string, chunks: RetrievedChunk[]): Promise<RetrievedChunk[]> {
     if (chunks.length === 0) return [];
     const apiKey = this.configService.get<string>('QWEN_API_KEY');
     const endpoint = this.configService.get<string>(

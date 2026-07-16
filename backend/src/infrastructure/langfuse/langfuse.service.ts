@@ -1,6 +1,7 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { CallbackHandler } from '@langfuse/langchain';
+import { LangfuseClient } from '@langfuse/client';
 import { LangfuseSpanProcessor } from '@langfuse/otel';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { LoggerService, LogServiceCall } from '../../common/logger';
@@ -15,6 +16,7 @@ export class LangfuseService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new LoggerService(LangfuseService.name);
   private sdk?: NodeSDK;
   private spanProcessor?: LangfuseSpanProcessor;
+  private client?: LangfuseClient;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -38,6 +40,7 @@ export class LangfuseService implements OnModuleInit, OnModuleDestroy {
     });
     this.sdk = new NodeSDK({ spanProcessors: [this.spanProcessor] });
     this.sdk.start();
+    this.client = new LangfuseClient({ publicKey, secretKey, baseUrl });
     this.logger.info('Langfuse LangChain自动上报初始化完成');
   }
 
@@ -65,10 +68,8 @@ export class LangfuseService implements OnModuleInit, OnModuleDestroy {
 
   @LogServiceCall()
   async flush(): Promise<void> {
-    if (!this.spanProcessor) return;
-
     try {
-      await this.spanProcessor.forceFlush();
+      await Promise.all([this.spanProcessor?.forceFlush(), this.client?.flush()]);
     } catch (error: unknown) {
       this.logLangfuseError('刷新Langfuse事件失败', error);
     }
@@ -76,14 +77,36 @@ export class LangfuseService implements OnModuleInit, OnModuleDestroy {
 
   @LogServiceCall()
   async shutdown(): Promise<void> {
-    if (!this.sdk) return;
-
     try {
-      await this.sdk.shutdown();
+      await Promise.all([this.sdk?.shutdown(), this.client?.shutdown()]);
       this.sdk = undefined;
       this.spanProcessor = undefined;
+      this.client = undefined;
     } catch (error: unknown) {
       this.logLangfuseError('关闭Langfuse客户端失败', error);
+    }
+  }
+
+  @LogServiceCall()
+  async scoreSession(
+    sessionId: string,
+    name: string,
+    value: number,
+    metadata: Record<string, string | number | boolean> = {},
+  ): Promise<void> {
+    if (!this.client) return;
+
+    try {
+      this.client.score.create({
+        sessionId,
+        name,
+        value: Math.max(0, Math.min(1, value)),
+        dataType: 'NUMERIC',
+        metadata,
+      });
+      await this.client.flush();
+    } catch (error: unknown) {
+      this.logLangfuseError('写入Langfuse评分失败', error);
     }
   }
 

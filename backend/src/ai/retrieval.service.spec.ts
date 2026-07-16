@@ -52,4 +52,35 @@ describe('RetrievalService', () => {
     expect(result.map((item) => item.chunkId)).toEqual(expect.arrayContaining(['chunk-1', 'chunk-2']));
     expect(result[0].chunkId).toBe('chunk-1');
   });
+
+  it('should continue with keyword retrieval when vector search fails', async () => {
+    const repository = { find: jest.fn().mockResolvedValue([]) };
+    const aiService = { generateEmbedding: jest.fn().mockResolvedValue([0.1]) };
+    const neo4jService = { search: jest.fn().mockRejectedValue(new Error('neo4j unavailable')) };
+    const elasticsearchService = {
+      search: jest.fn().mockResolvedValue([
+        {
+          chunkId: 'chunk-2',
+          documentId: 'doc-1',
+          documentName: '文档',
+          content: '关键词内容',
+          chunkIndex: 1,
+          score: 8,
+          metadata: {},
+        },
+      ]),
+    };
+    const configService = { get: jest.fn((_key: string, fallback?: string) => fallback) };
+    const service = new RetrievalService(
+      repository as never,
+      aiService as never,
+      neo4jService as never,
+      elasticsearchService as never,
+      configService as never,
+    );
+
+    await expect(service.retrieve('测试')).resolves.toEqual([
+      expect.objectContaining({ chunkId: 'chunk-2' }),
+    ]);
+  });
 });

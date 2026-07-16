@@ -11,6 +11,8 @@ import { Chunk } from '../entities/chunk.entity';
 import { RetrievalService } from './retrieval.service';
 import { ConversationContextService } from './conversation-context.service';
 import { TokenBudgetService } from './token-budget.service';
+import { RetrievalGraph } from './retrieval.graph';
+import { RagChatGraph } from './rag-chat.graph';
 
 @Module({
   imports: [
@@ -22,7 +24,14 @@ import { TokenBudgetService } from './token-budget.service';
     TypeOrmModule.forFeature([Chunk]),
   ],
   controllers: [ChatController],
-  providers: [AiService, RetrievalService, ConversationContextService, TokenBudgetService],
-  exports: [AiService, RetrievalService, ConversationContextService, TokenBudgetService],
+  providers: [
+    AiService,
+    RetrievalService,
+    RetrievalGraph,
+    RagChatGraph,
+    ConversationContextService,
+    TokenBudgetService,
+  ],
+  exports: [AiService, RetrievalService, RetrievalGraph, RagChatGraph, ConversationContextService, TokenBudgetService],
 })
 export class AiModule {}

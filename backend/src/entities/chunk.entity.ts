@@ -4,6 +4,7 @@ import { Document } from './document.entity';
 
 @Entity('chunks')
 @Index('IDX_chunks_document', ['documentId', 'chunkIndex'])
+@Index('UQ_chunks_document_index', ['documentId', 'chunkIndex'], { unique: true })
 export class Chunk {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -54,6 +55,9 @@ export class Chunk {
 
   @Column({ type: 'varchar', default: 'pending' })
   indexStatus: string;
+
+  @Column({ type: 'uuid', nullable: true })
+  ingestionRunId: string | null;
 
   @Column({ type: 'text', nullable: true })
   embedding: string;

@@ -8,6 +8,7 @@ import { DocumentModule } from './documents/document.module';
 import { AiModule } from './ai/ai.module';
 import { MemoryModule } from './memory/memory.module';
 import { LoggerModule } from './common/logger';
+import { GraphModule } from './graph/graph.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { LoggerModule } from './common/logger';
         outputFormat: process.env.NODE_ENV === 'production' ? 'json' : 'console',
       },
     }),
+    GraphModule,
     TypeOrmModule.forRootAsync({
       useFactory: typeOrmConfig,
       inject: [ConfigService],

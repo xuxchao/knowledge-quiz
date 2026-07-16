@@ -58,33 +58,62 @@ export class ChunkService {
       endMs?: number;
     }>,
   ): Promise<Chunk[]> {
-    await this.chunkRepository.delete({ documentId });
+    const saved = await this.stageForDocument(documentId, chunks, null);
+    await this.indexNeo4j(documentId);
+    await this.indexElasticsearch(documentId);
+    await this.markIndexed(documentId);
+    return saved;
+  }
 
-    if (!chunks || chunks.length === 0) {
-      return [];
-    }
+  @LogServiceCall()
+  async stageForDocument(
+    documentId: string,
+    chunks: Parameters<ChunkService['createForDocument']>[1],
+    ingestionRunId: string | null,
+  ): Promise<Chunk[]> {
+    return this.dataSource.transaction(async (manager) => {
+      const repository = manager.getRepository(Chunk);
+      if (!chunks?.length) {
+        await repository.delete({ documentId });
+        return [];
+      }
+      const existing = await repository.find({ where: { documentId } });
+      const existingByIndex = new Map(existing.map((chunk) => [chunk.chunkIndex, chunk]));
+      const chunkIndexes = chunks.map((chunk) => chunk.chunkIndex);
+      await repository
+        .createQueryBuilder()
+        .delete()
+        .where('"documentId" = :documentId', { documentId })
+        .andWhere('"chunkIndex" NOT IN (:...chunkIndexes)', { chunkIndexes })
+        .execute();
+      const chunkEntities = chunks.map((chunk) =>
+        repository.create({
+          id: existingByIndex.get(chunk.chunkIndex)?.id,
+          documentId,
+          content: chunk.content,
+          contentSearch: chunk.content,
+          chunkIndex: chunk.chunkIndex,
+          tokenCount: chunk.tokenCount ?? chunk.content.length,
+          metadata: chunk.metadata,
+          embedding: chunk.embedding,
+          pageNumber: chunk.pageNumber,
+          sheetName: chunk.sheetName,
+          rowRange: chunk.rowRange,
+          slideNumber: chunk.slideNumber,
+          headingPath: chunk.headingPath,
+          startMs: chunk.startMs,
+          endMs: chunk.endMs,
+          indexStatus: 'pending',
+          ingestionRunId,
+        }),
+      );
+      return repository.save(chunkEntities);
+    });
+  }
 
-    const chunkEntities = chunks.map((chunk) =>
-      this.chunkRepository.create({
-        documentId,
-        content: chunk.content,
-        contentSearch: chunk.content,
-        chunkIndex: chunk.chunkIndex,
-        tokenCount: chunk.tokenCount ?? chunk.content.length,
-        metadata: chunk.metadata,
-        embedding: chunk.embedding,
-        pageNumber: chunk.pageNumber,
-        sheetName: chunk.sheetName,
-        rowRange: chunk.rowRange,
-        slideNumber: chunk.slideNumber,
-        headingPath: chunk.headingPath,
-        startMs: chunk.startMs,
-        endMs: chunk.endMs,
-        indexStatus: 'pending',
-      }),
-    );
-
-    const saved = await this.chunkRepository.save(chunkEntities);
+  @LogServiceCall()
+  async indexNeo4j(documentId: string): Promise<void> {
+    const saved = await this.chunkRepository.find({ where: { documentId }, order: { chunkIndex: 'ASC' } });
     await this.neo4jService.deleteByDocumentId(documentId);
     await this.neo4jService.addDocumentsBatch(
       saved.map((chunk) => ({
@@ -93,6 +122,12 @@ export class ChunkService {
       })),
       saved.map((chunk) => JSON.parse(chunk.embedding || '[]') as number[]),
     );
+  }
+
+  @LogServiceCall()
+  async indexElasticsearch(documentId: string): Promise<void> {
+    const saved = await this.chunkRepository.find({ where: { documentId }, order: { chunkIndex: 'ASC' } });
+    await this.elasticsearchService.deleteByDocumentId(documentId);
     await this.elasticsearchService.indexChunks(
       saved.map((chunk) => ({
         chunkId: chunk.id,
@@ -113,8 +148,11 @@ export class ChunkService {
         },
       })),
     );
+  }
+
+  @LogServiceCall()
+  async markIndexed(documentId: string): Promise<void> {
     await this.chunkRepository.update({ documentId }, { indexStatus: 'indexed' });
-    return saved;
   }
 
   @LogServiceCall()

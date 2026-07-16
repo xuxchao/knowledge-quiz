@@ -79,4 +79,46 @@ describe('ChunkService consistency', () => {
     expect(queryBuilder.set).toHaveBeenCalledWith({ chunkCount: expect.any(Function) });
     expect(queryBuilder.where).toHaveBeenCalledWith('id = :documentId', { documentId: 'doc-1' });
   });
+
+  it('reuses stable chunk ids when staging the same document again', async () => {
+    const deleteQuery = {
+      delete: jest.fn().mockReturnThis(),
+      where: jest.fn().mockReturnThis(),
+      andWhere: jest.fn().mockReturnThis(),
+      execute: jest.fn().mockResolvedValue({ affected: 0 }),
+    };
+    const stagingRepository = {
+      find: jest.fn().mockResolvedValue([{ id: 'stable-id', documentId: 'doc-1', chunkIndex: 0 }]),
+      createQueryBuilder: jest.fn().mockReturnValue(deleteQuery),
+      create: jest.fn().mockImplementation((value) => value),
+      save: jest.fn().mockImplementation((value) => value),
+    };
+    const stagingService = new ChunkService(
+      {} as never,
+      {
+        transaction: jest.fn().mockImplementation((callback) =>
+          callback({ getRepository: jest.fn().mockReturnValue(stagingRepository) }),
+        ),
+      } as never,
+      {} as never,
+      {} as never,
+      {} as never,
+    );
+
+    const result = await stagingService.stageForDocument(
+      'doc-1',
+      [
+        {
+          content: 'new content',
+          metadata: {},
+          embedding: '[0.2]',
+          chunkIndex: 0,
+          totalChunks: 1,
+        },
+      ],
+      'run-2',
+    );
+
+    expect(result[0]).toEqual(expect.objectContaining({ id: 'stable-id', ingestionRunId: 'run-2' }));
+  });
 });

@@ -3,4 +3,5 @@ packages:
   - 'frontend'
 allowBuilds:
   '@swc/core': true
+  msgpackr-extract: false
   protobufjs: true

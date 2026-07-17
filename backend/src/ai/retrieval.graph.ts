@@ -4,10 +4,15 @@ import { SearchChunk } from '../infrastructure/elasticsearch/elasticsearch.servi
 import { LoggerService, LogServiceCall } from '../common/logger';
 import { RetrievedChunk, RetrievalService, VectorSearchHit } from './retrieval.service';
 import { GraphEvidence, NovelQueryPlan } from '../infrastructure/neo4j/novel-graph.types';
+import { RetrievalSnapshotService } from './retrieval-snapshot.service';
 
 export interface HybridRetrievalResult {
   chunks: RetrievedChunk[];
   graphEvidence: GraphEvidence[];
+}
+
+export interface RetrievalDebugContext {
+  conversationId?: string;
 }
 
 const RetrievalState = Annotation.Root({
@@ -22,6 +27,7 @@ const RetrievalState = Annotation.Root({
   errors: Annotation<string[]>({ reducer: (left, right) => [...left, ...right], default: () => [] }),
   fused: Annotation<RetrievedChunk[]>({ reducer: (_left, right) => right, default: () => [] }),
   reranked: Annotation<RetrievedChunk[]>({ reducer: (_left, right) => right, default: () => [] }),
+  selectedAndExpanded: Annotation<RetrievedChunk[]>({ reducer: (_left, right) => right, default: () => [] }),
   selected: Annotation<RetrievedChunk[]>({ reducer: (_left, right) => right, default: () => [] }),
 });
 
@@ -31,15 +37,41 @@ type RetrievalGraphState = typeof RetrievalState.State;
 export class RetrievalGraph {
   private readonly logger = new LoggerService(RetrievalGraph.name);
 
-  constructor(private readonly retrievalService: RetrievalService) {}
+  constructor(
+    private readonly retrievalService: RetrievalService,
+    private readonly retrievalSnapshotService: RetrievalSnapshotService,
+  ) {}
 
   @LogServiceCall()
-  async retrieve(query: string, documentIds?: string[]): Promise<HybridRetrievalResult> {
+  async retrieve(
+    query: string,
+    documentIds?: string[],
+    debugContext?: RetrievalDebugContext,
+  ): Promise<HybridRetrievalResult> {
+    const startedAt = new Date();
     const graph = this.build().compile();
     const result = await graph.invoke(
       { query, documentIds },
       { runName: 'rag.retrieval', tags: ['rag', 'retrieval', 'langgraph'] },
     );
+    await this.retrievalSnapshotService.write({
+      conversationId: debugContext?.conversationId,
+      startedAt,
+      query,
+      normalizedQuery: result.normalizedQuery,
+      documentIds,
+      queryPlan: result.queryPlan,
+      errors: result.errors,
+      stages: {
+        postgresVector: result.vectorHits,
+        elasticsearch: result.keywordHits,
+        neo4j: result.graphEvidence,
+        fused: result.fused,
+        reranked: result.reranked,
+        selectAndExpand: result.selectedAndExpanded,
+        final: result.selected,
+      },
+    });
     return { chunks: result.selected, graphEvidence: result.graphEvidence };
   }
 
@@ -59,12 +91,7 @@ export class RetrievalGraph {
       .addNode('rerank', async (state) => ({
         reranked: await this.retrievalService.rerank(state.normalizedQuery, state.fused.slice(0, 30)),
       }))
-      .addNode('selectAndExpand', async (state) => ({
-        selected: await this.retrievalService.attachGraphEvidence(
-          await this.retrievalService.selectAndExpand(state.reranked),
-          state.graphEvidence,
-        ),
-      }))
+      .addNode('selectAndExpand', (state) => this.selectAndExpand(state))
       .addEdge(START, 'normalizeQuery')
       .addEdge('normalizeQuery', 'analyzeQuery')
       .addEdge('analyzeQuery', 'embedQuery')
@@ -125,5 +152,11 @@ export class RetrievalGraph {
       throw new Error('知识库检索服务暂时不可用');
     }
     return { fused: this.retrievalService.fuse(state.vectorHits, state.keywordHits) };
+  }
+
+  private async selectAndExpand(state: RetrievalGraphState): Promise<Partial<RetrievalGraphState>> {
+    const selectedAndExpanded = await this.retrievalService.selectAndExpand(state.reranked);
+    const selected = await this.retrievalService.attachGraphEvidence(selectedAndExpanded, state.graphEvidence);
+    return { selectedAndExpanded, selected };
   }
 }

@@ -3,13 +3,15 @@ import { Neo4jService } from './neo4j.service';
 describe('Neo4jService novel graph', () => {
   it('should replace only the requested document graph in one write transaction', async () => {
     const transaction = {
-      run: jest.fn().mockImplementation((query: string) =>
-        Promise.resolve(
-          query.includes('RETURN count(relation) AS count')
-            ? { records: [{ get: jest.fn().mockReturnValue(1) }] }
-            : { records: [] },
+      run: jest
+        .fn()
+        .mockImplementation((query: string) =>
+          Promise.resolve(
+            query.includes('RETURN count(relation) AS count')
+              ? { records: [{ get: jest.fn().mockReturnValue(1) }] }
+              : { records: [] },
+          ),
         ),
-      ),
     };
     const session = {
       executeWrite: jest.fn().mockImplementation((callback) => callback(transaction)),
@@ -80,7 +82,9 @@ describe('Neo4jService novel graph', () => {
   it('should roll back a graph that contains isolated nodes', async () => {
     const transaction = {
       run: jest.fn().mockImplementation((query: string) =>
-        Promise.resolve({ records: [{ get: jest.fn().mockReturnValue(query.includes('WHERE NOT (node)--()') ? 1 : 2) }] }),
+        Promise.resolve({
+          records: [{ get: jest.fn().mockReturnValue(query.includes('WHERE NOT (node)--()') ? 1 : 2) }],
+        }),
       ),
     };
     const session = {

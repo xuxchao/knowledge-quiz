@@ -14,6 +14,7 @@ import { ConversationContextService } from './conversation-context.service';
 import { TokenBudgetService } from './token-budget.service';
 import { RetrievalGraph } from './retrieval.graph';
 import { RagChatGraph } from './rag-chat.graph';
+import { RetrievalSnapshotService } from './retrieval-snapshot.service';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { RagChatGraph } from './rag-chat.graph';
     AiService,
     RetrievalService,
     RetrievalGraph,
+    RetrievalSnapshotService,
     RagChatGraph,
     ConversationContextService,
     TokenBudgetService,

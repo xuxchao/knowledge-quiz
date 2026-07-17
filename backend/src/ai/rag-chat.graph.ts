@@ -163,7 +163,7 @@ export class RagChatGraph {
     const [memories, retrieval] = await Promise.all([
       this.memoryService.getRelevantMemories(state.retrievalQuery, conversationId, state.userId),
       state.intent === 'knowledge'
-        ? this.retrievalGraph.retrieve(state.retrievalQuery, state.documentIds)
+        ? this.retrievalGraph.retrieve(state.retrievalQuery, state.documentIds, { conversationId })
         : Promise.resolve({ chunks: [], graphEvidence: [] }),
     ]);
     return { memories, chunks: retrieval.chunks, graphEvidence: retrieval.graphEvidence };

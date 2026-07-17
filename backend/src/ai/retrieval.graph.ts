@@ -3,14 +3,22 @@ import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
 import { SearchChunk } from '../infrastructure/elasticsearch/elasticsearch.service';
 import { LoggerService, LogServiceCall } from '../common/logger';
 import { RetrievedChunk, RetrievalService, VectorSearchHit } from './retrieval.service';
+import { GraphEvidence, NovelQueryPlan } from '../infrastructure/neo4j/novel-graph.types';
+
+export interface HybridRetrievalResult {
+  chunks: RetrievedChunk[];
+  graphEvidence: GraphEvidence[];
+}
 
 const RetrievalState = Annotation.Root({
   query: Annotation<string>(),
   documentIds: Annotation<string[] | undefined>(),
   normalizedQuery: Annotation<string>(),
+  queryPlan: Annotation<NovelQueryPlan>(),
   embedding: Annotation<number[]>(),
   vectorHits: Annotation<VectorSearchHit[]>({ reducer: (_left, right) => right, default: () => [] }),
   keywordHits: Annotation<SearchChunk[]>({ reducer: (_left, right) => right, default: () => [] }),
+  graphEvidence: Annotation<GraphEvidence[]>({ reducer: (_left, right) => right, default: () => [] }),
   errors: Annotation<string[]>({ reducer: (left, right) => [...left, ...right], default: () => [] }),
   fused: Annotation<RetrievedChunk[]>({ reducer: (_left, right) => right, default: () => [] }),
   reranked: Annotation<RetrievedChunk[]>({ reducer: (_left, right) => right, default: () => [] }),
@@ -26,41 +34,51 @@ export class RetrievalGraph {
   constructor(private readonly retrievalService: RetrievalService) {}
 
   @LogServiceCall()
-  async retrieve(query: string, documentIds?: string[]): Promise<RetrievedChunk[]> {
+  async retrieve(query: string, documentIds?: string[]): Promise<HybridRetrievalResult> {
     const graph = this.build().compile();
     const result = await graph.invoke(
       { query, documentIds },
       { runName: 'rag.retrieval', tags: ['rag', 'retrieval', 'langgraph'] },
     );
-    return result.selected;
+    return { chunks: result.selected, graphEvidence: result.graphEvidence };
   }
 
   private build() {
     return new StateGraph(RetrievalState)
       .addNode('normalizeQuery', (state) => ({ normalizedQuery: this.retrievalService.normalizeQuery(state.query) }))
+      .addNode('analyzeQuery', async (state) => ({
+        queryPlan: await this.retrievalService.analyzeNovelQuery(state.normalizedQuery),
+      }))
       .addNode('embedQuery', async (state) => ({
         embedding: await this.retrievalService.embedQuery(state.normalizedQuery),
       }))
       .addNode('vectorSearch', (state) => this.vectorSearch(state))
       .addNode('keywordSearch', (state) => this.keywordSearch(state))
+      .addNode('graphSearch', (state) => this.graphSearch(state))
       .addNode('fuse', (state) => this.fuse(state))
       .addNode('rerank', async (state) => ({
         reranked: await this.retrievalService.rerank(state.normalizedQuery, state.fused.slice(0, 30)),
       }))
       .addNode('selectAndExpand', async (state) => ({
-        selected: await this.retrievalService.selectAndExpand(state.reranked),
+        selected: await this.retrievalService.attachGraphEvidence(
+          await this.retrievalService.selectAndExpand(state.reranked),
+          state.graphEvidence,
+        ),
       }))
       .addEdge(START, 'normalizeQuery')
-      .addEdge('normalizeQuery', 'embedQuery')
+      .addEdge('normalizeQuery', 'analyzeQuery')
+      .addEdge('analyzeQuery', 'embedQuery')
       .addEdge('embedQuery', 'vectorSearch')
       .addEdge('embedQuery', 'keywordSearch')
-      .addEdge(['vectorSearch', 'keywordSearch'], 'fuse')
+      .addEdge('embedQuery', 'graphSearch')
+      .addEdge(['vectorSearch', 'keywordSearch', 'graphSearch'], 'fuse')
       .addEdge('fuse', 'rerank')
       .addEdge('rerank', 'selectAndExpand')
       .addEdge('selectAndExpand', END);
   }
 
   private async vectorSearch(state: RetrievalGraphState): Promise<Partial<RetrievalGraphState>> {
+    if (state.queryPlan.mode === 'graph') return { vectorHits: [] };
     try {
       return { vectorHits: await this.retrievalService.searchVector(state.embedding, state.documentIds) };
     } catch (error: unknown) {
@@ -71,6 +89,7 @@ export class RetrievalGraph {
   }
 
   private async keywordSearch(state: RetrievalGraphState): Promise<Partial<RetrievalGraphState>> {
+    if (state.queryPlan.mode === 'graph') return { keywordHits: [] };
     try {
       return { keywordHits: await this.retrievalService.searchKeyword(state.normalizedQuery, state.documentIds) };
     } catch (error: unknown) {
@@ -80,8 +99,29 @@ export class RetrievalGraph {
     }
   }
 
+  private async graphSearch(state: RetrievalGraphState): Promise<Partial<RetrievalGraphState>> {
+    if (state.queryPlan.mode === 'text') return { graphEvidence: [] };
+    try {
+      return { graphEvidence: await this.retrievalService.searchGraph(state.queryPlan, state.documentIds) };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`小说图谱检索失败，尝试使用文本结果 - 错误: ${message}`);
+      return { graphEvidence: [], errors: [`graph:${message}`] };
+    }
+  }
+
   private fuse(state: RetrievalGraphState): Partial<RetrievalGraphState> {
-    if (state.errors.length >= 2 && !state.vectorHits.length && !state.keywordHits.length) {
+    const textUnavailable =
+      state.queryPlan.mode !== 'graph' &&
+      state.errors.some((error) => error.startsWith('vector:')) &&
+      state.errors.some((error) => error.startsWith('keyword:'));
+    const graphUnavailable =
+      state.queryPlan.mode !== 'text' && state.errors.some((error) => error.startsWith('graph:'));
+    if (
+      (state.queryPlan.mode === 'text' && textUnavailable) ||
+      (state.queryPlan.mode === 'graph' && graphUnavailable) ||
+      (state.queryPlan.mode === 'hybrid' && textUnavailable && graphUnavailable)
+    ) {
       throw new Error('知识库检索服务暂时不可用');
     }
     return { fused: this.retrievalService.fuse(state.vectorHits, state.keywordHits) };

@@ -13,6 +13,7 @@ describe('DocumentIngestionGraph', () => {
       chunkService as never,
       {} as never,
       artifactService as never,
+      {} as never,
     );
 
     await graph.handleFailure(

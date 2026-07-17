@@ -2,11 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { Chunk } from '../entities/chunk.entity';
-import { Document } from '../entities/document.entity';
+import { Document, NovelGraphStatus } from '../entities/document.entity';
 import { LoggerService, LogServiceCall } from '../common/logger';
 import { AiService } from '../ai/ai.service';
 import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
 import { ElasticsearchService } from '../infrastructure/elasticsearch/elasticsearch.service';
+import { NovelGraphExtractionService } from './novel-graph-extraction.service';
 
 @Injectable()
 export class ChunkService {
@@ -19,6 +20,7 @@ export class ChunkService {
     private aiService: AiService,
     private neo4jService: Neo4jService,
     private elasticsearchService: ElasticsearchService,
+    private novelGraphExtractionService: NovelGraphExtractionService,
   ) {}
 
   @LogServiceCall()
@@ -45,7 +47,7 @@ export class ChunkService {
     chunks: Array<{
       content: string;
       metadata: Record<string, unknown>;
-      embedding: string;
+      embedding: number[];
       chunkIndex: number;
       totalChunks: number;
       tokenCount?: number;
@@ -59,7 +61,6 @@ export class ChunkService {
     }>,
   ): Promise<Chunk[]> {
     const saved = await this.stageForDocument(documentId, chunks, null);
-    await this.indexNeo4j(documentId);
     await this.indexElasticsearch(documentId);
     await this.markIndexed(documentId);
     return saved;
@@ -112,19 +113,6 @@ export class ChunkService {
   }
 
   @LogServiceCall()
-  async indexNeo4j(documentId: string): Promise<void> {
-    const saved = await this.chunkRepository.find({ where: { documentId }, order: { chunkIndex: 'ASC' } });
-    await this.neo4jService.deleteByDocumentId(documentId);
-    await this.neo4jService.addDocumentsBatch(
-      saved.map((chunk) => ({
-        content: chunk.content,
-        metadata: { ...(chunk.metadata || {}), chunkId: chunk.id, documentId },
-      })),
-      saved.map((chunk) => JSON.parse(chunk.embedding || '[]') as number[]),
-    );
-  }
-
-  @LogServiceCall()
   async indexElasticsearch(documentId: string): Promise<void> {
     const saved = await this.chunkRepository.find({ where: { documentId }, order: { chunkIndex: 'ASC' } });
     await this.elasticsearchService.deleteByDocumentId(documentId);
@@ -159,7 +147,7 @@ export class ChunkService {
   async updateContent(id: string, content: string): Promise<Chunk | null> {
     const [embedding] = await this.aiService.generateEmbeddings([content]);
 
-    return this.dataSource.transaction(async (manager) => {
+    const saved = await this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(Chunk);
       const chunk = await repository.findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
       if (!chunk) return null;
@@ -167,12 +155,8 @@ export class ChunkService {
       chunk.content = content;
       chunk.contentSearch = content;
       chunk.tokenCount = content.length;
-      chunk.embedding = JSON.stringify(embedding);
+      chunk.embedding = embedding;
       const saved = await repository.save(chunk);
-      await this.neo4jService.addDocuments(
-        [{ content, metadata: { ...(chunk.metadata || {}), chunkId: chunk.id, documentId: chunk.documentId } }],
-        [embedding],
-      );
       await this.elasticsearchService.indexChunks([
         {
           chunkId: chunk.id,
@@ -185,18 +169,25 @@ export class ChunkService {
           metadata: chunk.metadata || {},
         },
       ]);
+      await manager.getRepository(Document).update(chunk.documentId, {
+        graphStatus: NovelGraphStatus.STALE,
+        graphError: '切片内容已修改，需要重建小说图谱',
+      });
       return saved;
     });
+    if (saved) this.triggerGraphRebuild(saved.documentId);
+    return saved;
   }
 
   @LogServiceCall()
   async delete(id: string): Promise<boolean> {
-    return this.dataSource.transaction(async (manager) => {
+    let documentId: string | undefined;
+    const deleted = await this.dataSource.transaction(async (manager) => {
       const repository = manager.getRepository(Chunk);
       const chunk = await repository.findOne({ where: { id }, lock: { mode: 'pessimistic_write' } });
       if (!chunk) return false;
+      documentId = chunk.documentId;
 
-      await this.neo4jService.deleteByChunkId(id);
       await this.elasticsearchService.deleteByChunkId(id);
       await repository.delete(id);
       await manager
@@ -205,8 +196,14 @@ export class ChunkService {
         .set({ chunkCount: () => 'GREATEST("chunkCount" - 1, 0)' })
         .where('id = :documentId', { documentId: chunk.documentId })
         .execute();
+      await manager.getRepository(Document).update(chunk.documentId, {
+        graphStatus: NovelGraphStatus.STALE,
+        graphError: '切片已删除，需要重建小说图谱',
+      });
       return true;
     });
+    if (deleted && documentId) this.triggerGraphRebuild(documentId);
+    return deleted;
   }
 
   @LogServiceCall()
@@ -221,5 +218,16 @@ export class ChunkService {
     if (failures.length) {
       throw new Error(`外部索引清理失败: ${failures.map((result) => String(result.reason)).join('; ')}`);
     }
+  }
+
+  private triggerGraphRebuild(documentId: string): void {
+    void this.novelGraphExtractionService.extractAndStore(documentId).catch(async (error: unknown) => {
+      await this.novelGraphExtractionService.markFailed(documentId, error);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `切片变更后的小说图谱重建失败 - 文档ID: ${documentId}，错误: ${message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+    });
   }
 }

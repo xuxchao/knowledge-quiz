@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
 import type { AIMessageChunk, BaseMessage } from '@langchain/core/messages';
 import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
+import { JsonOutputParser } from '@langchain/core/output_parsers';
 import { LoggerService, LogServiceCall } from '../common/logger';
 
 export interface ConversationPromptMessage {
@@ -17,6 +18,8 @@ export class AiService implements OnModuleInit {
   private embeddings: OpenAIEmbeddings;
   private visionModel: ChatOpenAI;
   private summaryModel: ChatOpenAI;
+  private structuredJsonModel: ChatOpenAI;
+  private structuredJsonMaxAttempts: number;
 
   constructor(private configService: ConfigService) {}
 
@@ -65,6 +68,20 @@ export class AiService implements OnModuleInit {
       temperature: 0.1,
       maxTokens: Number(this.configService.get<string>('AI_SUMMARY_MAX_TOKENS', '2048')),
     });
+
+    this.structuredJsonModel = new ChatOpenAI({
+      apiKey,
+      configuration: { baseURL: apiBaseUrl },
+      model: 'qwen-plus',
+      temperature: 0,
+      maxTokens: Number(this.configService.get<string>('NOVEL_GRAPH_MAX_OUTPUT_TOKENS', '4096')),
+      timeout: Number(this.configService.get<string>('NOVEL_GRAPH_REQUEST_TIMEOUT_MS', '120000')),
+      maxRetries: 0,
+    });
+    this.structuredJsonMaxAttempts = Math.max(
+      1,
+      Number(this.configService.get<string>('NOVEL_GRAPH_JSON_MAX_ATTEMPTS', '3')),
+    );
 
     this.logger.info('AI服务初始化完成');
   }
@@ -247,6 +264,53 @@ export class AiService implements OnModuleInit {
     const match = this.extractMessageContent(response).match(/(?:0(?:\.\d+)?|1(?:\.0+)?)/);
     if (!match) throw new Error('Groundedness评分模型返回格式无效');
     return Math.max(0, Math.min(1, Number(match[0])));
+  }
+
+  @LogServiceCall()
+  async generateStructuredJson<T extends object>(
+    systemPrompt: string,
+    userPrompt: string,
+    runName: string,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const parser = new JsonOutputParser<Record<string, unknown>>();
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= this.structuredJsonMaxAttempts; attempt += 1) {
+      const retryInstruction =
+        attempt > 1 ? '\n上一次输出无法解析。请重新生成完整JSON；内容过多时减少条目或缩短描述，绝对不要截断JSON。' : '';
+      try {
+        const response = await this.structuredJsonModel.invoke(
+          [
+            {
+              role: 'system',
+              content: `${systemPrompt}\n必须只输出一个完整、合法的JSON对象，不要输出Markdown代码块或解释。${retryInstruction}`,
+            },
+            { role: 'user', content: userPrompt },
+          ],
+          {
+            runName,
+            tags: ['novel-graph', 'structured-output'],
+            response_format: { type: 'json_object' },
+            signal,
+          },
+        );
+        const parsed = await parser.parse(this.extractMessageContent(response));
+        if (!parsed || Array.isArray(parsed)) throw new Error('模型未返回JSON对象');
+        return parsed as T;
+      } catch (error: unknown) {
+        lastError = error;
+        const message = error instanceof Error ? error.message : String(error);
+        this.logger.warn(
+          `模型结构化输出失败，准备重试 - 运行名称: ${runName}，尝试: ${attempt}/${this.structuredJsonMaxAttempts}，错误: ${message}`,
+        );
+      }
+    }
+    const message = lastError instanceof Error ? lastError.message : String(lastError);
+    this.logger.error(
+      `模型结构化输出失败 - 运行名称: ${runName}，已重试: ${this.structuredJsonMaxAttempts}次，错误: ${message}`,
+      lastError instanceof Error ? lastError.stack : undefined,
+    );
+    throw new Error(`模型结构化输出失败: ${message}`);
   }
 
   private extractMessageContent(message: BaseMessage): string {

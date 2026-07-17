@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHash } from 'node:crypto';
-import { DocumentStatus, ProcessingStage } from '../entities/document.entity';
+import { createHash, randomUUID } from 'node:crypto';
+import { DocumentStatus, NovelGraphStatus, ProcessingStage } from '../entities/document.entity';
 import { GraphRunStatus } from '../entities/graph-run.entity';
 import { GraphRunService } from '../graph/graph-run.service';
 import { LoggerService, LogServiceCall } from '../common/logger';
@@ -14,6 +14,9 @@ export interface IngestionStatus {
   progress: number;
   retryCount: number;
   failedReason?: string;
+  graphStatus: NovelGraphStatus;
+  graphVersion?: string;
+  graphError?: string;
 }
 
 @Injectable()
@@ -31,20 +34,18 @@ export class DocumentIngestionService {
   }
 
   @LogServiceCall()
-  async enqueue(documentId: string, filePath: string, fileName: string, contentHash?: string): Promise<string> {
+  async enqueue(
+    documentId: string,
+    filePath: string,
+    fileName: string,
+    contentHash?: string,
+    force = false,
+  ): Promise<string> {
     const document = await this.documentService.findById(documentId, false);
     if (!document) throw new Error('文档不存在');
     const hash = contentHash || createHash('sha256').update(filePath).digest('hex');
-    const idempotencyKey = createHash('sha256').update(`${documentId}|${hash}|${this.parserVersion}`).digest('hex');
-    await this.documentService.update(documentId, {
-      status: DocumentStatus.PROCESSING,
-      processingStage: ProcessingStage.QUEUED,
-      parserVersion: this.parserVersion,
-      contentHash: hash,
-      retryCount: 0,
-      errorCode: null,
-      errorMessage: null,
-    });
+    const runIdentity = `${documentId}|${hash}|${this.parserVersion}${force ? `|force|${randomUUID()}` : ''}`;
+    const idempotencyKey = createHash('sha256').update(runIdentity).digest('hex');
     const run = await this.graphRunService.create({
       graphName: DocumentIngestionService.GRAPH_NAME,
       aggregateId: documentId,
@@ -58,6 +59,19 @@ export class DocumentIngestionService {
         parserVersion: this.parserVersion,
       },
     });
+    if (run.status === GraphRunStatus.QUEUED || run.status === GraphRunStatus.RUNNING) {
+      await this.documentService.update(documentId, {
+        status: DocumentStatus.PROCESSING,
+        processingStage: ProcessingStage.QUEUED,
+        parserVersion: this.parserVersion,
+        contentHash: hash,
+        retryCount: 0,
+        graphStatus: NovelGraphStatus.PENDING,
+        graphError: null,
+        errorCode: null,
+        errorMessage: null,
+      });
+    }
     this.logger.info(`文档LangGraph运行已创建 - 文档ID: ${documentId}，运行ID: ${run.id}`);
     return run.id;
   }
@@ -75,6 +89,9 @@ export class DocumentIngestionService {
       progress: run?.progress ?? (document.status === DocumentStatus.PROCESSED ? 100 : 0),
       retryCount: run?.attemptCount ?? document.retryCount,
       failedReason: run?.errorMessage || document.errorMessage || undefined,
+      graphStatus: document.graphStatus,
+      graphVersion: document.graphVersion ?? undefined,
+      graphError: document.graphError ?? undefined,
     };
   }
 }

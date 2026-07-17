@@ -4,7 +4,7 @@ describe('RetrievalService', () => {
   it('should fuse vector and keyword hits and fall back to RRF when reranking is not configured', async () => {
     const repository = { find: jest.fn().mockResolvedValue([]) };
     const aiService = { generateEmbedding: jest.fn().mockResolvedValue([0.1, 0.2]) };
-    const neo4jService = {
+    const postgresVectorService = {
       search: jest.fn().mockResolvedValue([
         {
           content: '向量内容',
@@ -13,6 +13,7 @@ describe('RetrievalService', () => {
         },
       ]),
     };
+    const neo4jService = { searchGraph: jest.fn().mockResolvedValue([]) };
     const elasticsearchService = {
       search: jest.fn().mockResolvedValue([
         {
@@ -39,6 +40,7 @@ describe('RetrievalService', () => {
     const service = new RetrievalService(
       repository as never,
       aiService as never,
+      postgresVectorService as never,
       neo4jService as never,
       elasticsearchService as never,
       configService as never,
@@ -47,7 +49,7 @@ describe('RetrievalService', () => {
     const result = await service.retrieve('  测试   查询  ');
 
     expect(aiService.generateEmbedding).toHaveBeenCalledWith('测试 查询');
-    expect(neo4jService.search).toHaveBeenCalledWith([0.1, 0.2], 30, undefined);
+    expect(postgresVectorService.search).toHaveBeenCalledWith([0.1, 0.2], 30, undefined);
     expect(elasticsearchService.search).toHaveBeenCalledWith('测试 查询', 30, undefined);
     expect(result.map((item) => item.chunkId)).toEqual(expect.arrayContaining(['chunk-1', 'chunk-2']));
     expect(result[0].chunkId).toBe('chunk-1');
@@ -56,7 +58,8 @@ describe('RetrievalService', () => {
   it('should continue with keyword retrieval when vector search fails', async () => {
     const repository = { find: jest.fn().mockResolvedValue([]) };
     const aiService = { generateEmbedding: jest.fn().mockResolvedValue([0.1]) };
-    const neo4jService = { search: jest.fn().mockRejectedValue(new Error('neo4j unavailable')) };
+    const postgresVectorService = { search: jest.fn().mockRejectedValue(new Error('postgres unavailable')) };
+    const neo4jService = { searchGraph: jest.fn().mockResolvedValue([]) };
     const elasticsearchService = {
       search: jest.fn().mockResolvedValue([
         {
@@ -74,6 +77,7 @@ describe('RetrievalService', () => {
     const service = new RetrievalService(
       repository as never,
       aiService as never,
+      postgresVectorService as never,
       neo4jService as never,
       elasticsearchService as never,
       configService as never,

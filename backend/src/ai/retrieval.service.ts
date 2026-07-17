@@ -4,7 +4,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { AiService } from './ai.service';
 import { Chunk } from '../entities/chunk.entity';
+import { PostgresVectorService } from '../infrastructure/postgres-vector/postgres-vector.service';
 import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
+import type { GraphEvidence, NovelQueryPlan } from '../infrastructure/neo4j/novel-graph.types';
 import { ElasticsearchService, SearchChunk } from '../infrastructure/elasticsearch/elasticsearch.service';
 import { LoggerService, LogServiceCall } from '../common/logger';
 
@@ -27,6 +29,7 @@ export class RetrievalService {
   constructor(
     @InjectRepository(Chunk) private readonly chunkRepository: Repository<Chunk>,
     private readonly aiService: AiService,
+    private readonly postgresVectorService: PostgresVectorService,
     private readonly neo4jService: Neo4jService,
     private readonly elasticsearchService: ElasticsearchService,
     private readonly configService: ConfigService,
@@ -52,6 +55,82 @@ export class RetrievalService {
   }
 
   @LogServiceCall()
+  async analyzeNovelQuery(query: string): Promise<NovelQueryPlan> {
+    try {
+      const raw = await this.aiService.generateStructuredJson<Partial<NovelQueryPlan>>(
+        '判断小说问题需要文本检索、图谱检索还是混合检索。人物关系、章节顺序、首次出现、组织成员、事件参与或因果问题使用graph或hybrid；情节细节使用text。输出字段mode、entities、relationshipKinds、chapterOrdinal、novelTitle。',
+        query,
+        'rag.novel-query-plan',
+      );
+      const mode = ['text', 'graph', 'hybrid'].includes(String(raw.mode)) ? raw.mode! : 'text';
+      const chapterOrdinal = Number(raw.chapterOrdinal);
+      return {
+        mode,
+        entities: this.stringArray(raw.entities).slice(0, 10),
+        relationshipKinds: this.stringArray(raw.relationshipKinds)
+          .map((value) => value.toUpperCase())
+          .slice(0, 10),
+        chapterOrdinal: Number.isInteger(chapterOrdinal) && chapterOrdinal > 0 ? chapterOrdinal : undefined,
+        novelTitle: typeof raw.novelTitle === 'string' && raw.novelTitle.trim() ? raw.novelTitle.trim() : undefined,
+      };
+    } catch (error: unknown) {
+      const structural =
+        /关系|人物|角色|第.{0,8}章|章节|先后|首次|第一次|成员|属于|参与|导致|因果|敌人|盟友|师[徒父]|亲属/.test(query);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `小说检索路由分析失败，使用规则降级 - 错误: ${message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      return { mode: structural ? 'hybrid' : 'text', entities: [], relationshipKinds: [] };
+    }
+  }
+
+  @LogServiceCall()
+  searchGraph(plan: NovelQueryPlan, documentIds?: string[]): Promise<GraphEvidence[]> {
+    const topK = Number(this.configService.get<string>('NOVEL_GRAPH_RETRIEVAL_TOP_K', '20'));
+    return this.neo4jService.searchGraph(plan, documentIds, topK);
+  }
+
+  @LogServiceCall()
+  async attachGraphEvidence(chunks: RetrievedChunk[], evidence: GraphEvidence[]): Promise<RetrievedChunk[]> {
+    const evidenceByChunk = new Map<string, GraphEvidence>();
+    for (const item of evidence) {
+      for (const chunkId of item.evidenceChunkIds) {
+        const existing = evidenceByChunk.get(chunkId);
+        if (!existing || existing.confidence < item.confidence) evidenceByChunk.set(chunkId, item);
+      }
+    }
+    if (!evidenceByChunk.size) return chunks;
+    const graphChunks = await this.chunkRepository.find({ where: { id: In([...evidenceByChunk.keys()]) } });
+    const existingIds = new Set(chunks.map((chunk) => chunk.chunkId));
+    const budget = Number(this.configService.get<string>('RAG_GRAPH_CONTEXT_TOKEN_BUDGET', '2000'));
+    let tokens = 0;
+    const additions: RetrievedChunk[] = [];
+    for (const chunk of graphChunks.sort((left, right) => left.chunkIndex - right.chunkIndex)) {
+      if (existingIds.has(chunk.id) || tokens + chunk.tokenCount > budget) continue;
+      const graphEvidence = evidenceByChunk.get(chunk.id);
+      if (!graphEvidence) continue;
+      tokens += chunk.tokenCount;
+      additions.push({
+        chunkId: chunk.id,
+        documentId: chunk.documentId,
+        documentName: graphEvidence.documentName,
+        content: chunk.content,
+        chunkIndex: chunk.chunkIndex,
+        score: graphEvidence.confidence,
+        metadata: {
+          ...(chunk.metadata ?? {}),
+          documentId: chunk.documentId,
+          documentName: graphEvidence.documentName,
+          chunkIndex: chunk.chunkIndex,
+          graphEvidence: true,
+        },
+      });
+    }
+    return [...chunks, ...additions];
+  }
+
+  @LogServiceCall()
   normalizeQuery(query: string): string {
     return query.replace(/\s+/g, ' ').trim();
   }
@@ -63,7 +142,7 @@ export class RetrievalService {
 
   @LogServiceCall()
   searchVector(embedding: number[], documentIds?: string[]): Promise<VectorSearchHit[]> {
-    return this.neo4jService.search(embedding, 30, documentIds);
+    return this.postgresVectorService.search(embedding, 30, documentIds);
   }
 
   @LogServiceCall()
@@ -144,7 +223,10 @@ export class RetrievalService {
       }));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger.warn(`云端重排失败，降级为RRF排序 - 错误: ${message}`);
+      this.logger.error(
+        `云端重排失败，降级为RRF排序 - 错误: ${message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
       return chunks;
     }
   }
@@ -192,5 +274,11 @@ export class RetrievalService {
 
   private estimateTokens(content: string): number {
     return Math.ceil(content.length / 2);
+  }
+
+  private stringArray(value: unknown): string[] {
+    return Array.isArray(value)
+      ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
+      : [];
   }
 }

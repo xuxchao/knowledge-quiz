@@ -1,200 +1,162 @@
-import { ConfigService } from '@nestjs/config';
 import { Neo4jService } from './neo4j.service';
 
-describe('Neo4jService', () => {
-  let service: Neo4jService;
-  let session: { run: jest.Mock; close: jest.Mock };
-
-  beforeEach(() => {
-    session = {
-      run: jest.fn((query: string) =>
-        Promise.resolve({
-          records: query.includes('SHOW VECTOR INDEXES')
-            ? [
-                {
-                  get: jest.fn((key: string) => {
-                    if (key === 'name') return 'document_embeddings_v2';
-                    if (key === 'state') return 'ONLINE';
-                    return undefined;
-                  }),
-                },
-              ]
-            : [],
-        }),
+describe('Neo4jService novel graph', () => {
+  it('should replace only the requested document graph in one write transaction', async () => {
+    const transaction = {
+      run: jest.fn().mockImplementation((query: string) =>
+        Promise.resolve(
+          query.includes('RETURN count(relation) AS count')
+            ? { records: [{ get: jest.fn().mockReturnValue(1) }] }
+            : { records: [] },
+        ),
       ),
+    };
+    const session = {
+      executeWrite: jest.fn().mockImplementation((callback) => callback(transaction)),
       close: jest.fn().mockResolvedValue(undefined),
     };
+    const service = new Neo4jService({ get: jest.fn() } as never);
+    (service as unknown as { driver: { session(): unknown } }).driver = { session: () => session };
 
-    service = new Neo4jService({
-      get: jest.fn((_key: string, defaultValue?: unknown) => defaultValue),
-    } as unknown as ConfigService);
-    (service as unknown as { driver: { session: jest.Mock } }).driver = {
-      session: jest.fn().mockReturnValue(session),
-    };
-  });
-
-  it('should store document metadata as Neo4j primitive properties', async () => {
-    await service.addDocuments(
-      [
+    await service.replaceNovelGraph({
+      novel: { id: 'doc-1:novel', documentId: 'doc-1', title: '测试小说' },
+      chapters: [{ id: 'chapter-1', documentId: 'doc-1', ordinal: 1, title: '第一章', evidenceChunkIds: ['c1'] }],
+      entities: [
         {
-          content: 'chunk1',
-          metadata: {
-            chunkId: 'chunk-1',
-            documentId: 'doc-1',
-            chunkIndex: 0,
-            totalChunks: 2,
-            tags: ['a', 'b'],
-            mixed: ['a', 1],
-            nested: { source: 'upload' },
-            empty: null,
-          },
+          id: 'character-1',
+          documentId: 'doc-1',
+          type: 'Character',
+          name: '甲',
+          normalizedName: '甲',
+          aliases: [],
+          evidenceChunkIds: ['c1'],
         },
       ],
-      [[0.1, 0.2]],
-    );
-
-    expect(session.run).toHaveBeenCalledWith(expect.stringContaining('UNWIND $rows'), {
-      rows: [
+      relations: [
         {
-          properties: {
-            content: 'chunk1',
-            embedding: [0.1, 0.2],
-            chunkId: 'chunk-1',
-            documentId: 'doc-1',
-            chunkIndex: 0,
-            totalChunks: 2,
-            tags: ['a', 'b'],
-            mixed: JSON.stringify(['a', 1]),
-            nested: JSON.stringify({ source: 'upload' }),
-          },
+          id: 'relation-1',
+          documentId: 'doc-1',
+          sourceId: 'doc-1:novel',
+          targetId: 'chapter-1',
+          type: 'HAS_CHAPTER',
+          confidence: 1,
+          evidenceChunkIds: ['c1'],
         },
       ],
+      version: '1',
     });
-    expect(session.close).toHaveBeenCalled();
-  });
 
-  it('should wait for the vector index to become online after creating it', async () => {
-    await service.createVectorIndex();
-
-    expect(session.run).toHaveBeenNthCalledWith(1, expect.stringContaining('CREATE VECTOR INDEX'));
-    expect(session.run).toHaveBeenNthCalledWith(2, expect.stringContaining('SHOW VECTOR INDEXES'), {
-      labelsOrTypes: ['DocumentChunk'],
-      properties: ['embedding'],
-    });
-    expect(session.close).toHaveBeenCalled();
-  });
-
-  it('should delete chunks by top-level documentId property', async () => {
-    await service.deleteByDocumentId('doc-1');
-
-    expect(session.run).toHaveBeenCalledWith(expect.stringContaining('WHERE c.documentId = $documentId'), {
+    expect(transaction.run).toHaveBeenNthCalledWith(1, expect.stringContaining('DETACH DELETE'), {
       documentId: 'doc-1',
     });
-    expect(session.run).not.toHaveBeenCalledWith(expect.stringContaining('c.metadata.documentId'), expect.anything());
+    expect(transaction.run).toHaveBeenCalledWith(
+      expect.stringContaining('CREATE (source)-[r:HAS_CHAPTER]'),
+      expect.anything(),
+    );
+    expect(session.close).toHaveBeenCalled();
   });
 
-  it('should reconstruct metadata from stored node properties when searching', async () => {
-    session.run.mockResolvedValue({
-      records: [
-        {
-          get: jest.fn((key: string) => {
-            if (key === 'content') {
-              return 'chunk1';
-            }
-            if (key === 'properties') {
-              return {
-                content: 'chunk1',
-                embedding: [0.1, 0.2],
-                documentId: 'doc-1',
-                chunkIndex: 0,
-                totalChunks: 2,
-              };
-            }
-            if (key === 'score') {
-              return 0.9;
-            }
-            return undefined;
-          }),
-        },
-      ],
-    });
+  it('should roll back a graph that contains no relationships', async () => {
+    const transaction = { run: jest.fn().mockResolvedValue({ records: [{ get: jest.fn().mockReturnValue(0) }] }) };
+    const session = {
+      executeWrite: jest.fn().mockImplementation((callback) => callback(transaction)),
+      close: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new Neo4jService({ get: jest.fn() } as never);
+    (service as unknown as { driver: { session(): unknown } }).driver = { session: () => session };
 
-    const result = await service.search([0.1, 0.2], 1);
+    await expect(
+      service.replaceNovelGraph({
+        novel: { id: 'doc-1:novel', documentId: 'doc-1', title: '测试小说' },
+        chapters: [],
+        entities: [],
+        relations: [],
+        version: '1',
+      }),
+    ).rejects.toThrow('文档图谱没有任何关联关系');
+    expect(session.close).toHaveBeenCalled();
+  });
+
+  it('should roll back a graph that contains isolated nodes', async () => {
+    const transaction = {
+      run: jest.fn().mockImplementation((query: string) =>
+        Promise.resolve({ records: [{ get: jest.fn().mockReturnValue(query.includes('WHERE NOT (node)--()') ? 1 : 2) }] }),
+      ),
+    };
+    const session = {
+      executeWrite: jest.fn().mockImplementation((callback) => callback(transaction)),
+      close: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new Neo4jService({ get: jest.fn() } as never);
+    (service as unknown as { driver: { session(): unknown } }).driver = { session: () => session };
+
+    await expect(
+      service.replaceNovelGraph({
+        novel: { id: 'doc-1:novel', documentId: 'doc-1', title: '测试小说' },
+        chapters: [{ id: 'chapter-1', documentId: 'doc-1', ordinal: 1, title: '第一章', evidenceChunkIds: ['c1'] }],
+        entities: [],
+        relations: [
+          {
+            id: 'relation-1',
+            documentId: 'doc-1',
+            sourceId: 'doc-1:novel',
+            targetId: 'chapter-1',
+            type: 'HAS_CHAPTER',
+            confidence: 1,
+            evidenceChunkIds: ['c1'],
+          },
+        ],
+        version: '1',
+      }),
+    ).rejects.toThrow('存在1个孤立节点');
+    expect(session.close).toHaveBeenCalled();
+  });
+
+  it('should reconstruct graph evidence with source chunk ids', async () => {
+    const session = {
+      run: jest.fn().mockResolvedValue({
+        records: [
+          {
+            get: jest.fn(
+              (key: string) =>
+                ({
+                  source: { documentId: 'doc-1', name: '甲' },
+                  target: { documentId: 'doc-1', name: '乙' },
+                  relation: { kind: 'ALLY', confidence: 0.9, evidenceChunkIds: ['c1'], description: '结盟' },
+                  relationType: 'RELATED_TO',
+                  documentName: '测试小说',
+                })[key],
+            ),
+          },
+        ],
+      }),
+      close: jest.fn().mockResolvedValue(undefined),
+    };
+    const service = new Neo4jService({ get: jest.fn() } as never);
+    (service as unknown as { driver: { session(): unknown } }).driver = { session: () => session };
+
+    const result = await service.searchGraph(
+      { mode: 'graph', entities: ['甲'], relationshipKinds: ['ALLY'] },
+      ['doc-1'],
+      5,
+    );
 
     expect(result).toEqual([
       {
-        content: 'chunk1',
-        metadata: {
-          documentId: 'doc-1',
-          chunkIndex: 0,
-          totalChunks: 2,
-        },
-        score: 0.9,
+        documentId: 'doc-1',
+        documentName: '测试小说',
+        statement: '甲 -[ALLY]-> 乙：结盟',
+        evidenceChunkIds: ['c1'],
+        confidence: 0.9,
       },
     ]);
-  });
-
-  it('should recreate a missing vector index and retry the search once', async () => {
-    const missingIndexError = new Error('There is no such vector schema index: document_embeddings_v2');
-    let vectorQueryCount = 0;
-    session.run.mockImplementation((query: string) => {
-      if (query.includes('db.index.vector.queryNodes')) {
-        vectorQueryCount += 1;
-        if (vectorQueryCount === 1) {
-          return Promise.reject(missingIndexError);
-        }
-      }
-      if (query.includes('SHOW VECTOR INDEXES')) {
-        return Promise.resolve({
-          records: [
-            {
-              get: jest.fn((key: string) => {
-                if (key === 'name') return 'document_embeddings_v2';
-                if (key === 'state') return 'ONLINE';
-                return undefined;
-              }),
-            },
-          ],
-        });
-      }
-      return Promise.resolve({ records: [] });
-    });
-
-    await expect(service.search([0.1, 0.2], 1)).resolves.toEqual([]);
-
-    expect(vectorQueryCount).toBe(2);
-    expect(session.run).toHaveBeenCalledWith(expect.stringContaining('CREATE VECTOR INDEX'));
-    expect(session.run).toHaveBeenCalledWith(expect.stringContaining('SHOW VECTOR INDEXES'), {
-      labelsOrTypes: ['DocumentChunk'],
-      properties: ['embedding'],
-    });
-  });
-
-  it('should reuse an online legacy index with the same schema', async () => {
-    session.run.mockImplementation((query: string) =>
-      Promise.resolve({
-        records: query.includes('SHOW VECTOR INDEXES')
-          ? [
-              {
-                get: jest.fn((key: string) => {
-                  if (key === 'name') return 'document_embeddings';
-                  if (key === 'state') return 'ONLINE';
-                  return undefined;
-                }),
-              },
-            ]
-          : [],
+    expect(session.run).toHaveBeenCalledWith(
+      expect.stringContaining('MATCH (source)-[relation]->(target)'),
+      expect.objectContaining({
+        documentIds: ['doc-1'],
+        entities: ['甲'],
+        relationshipKinds: ['ALLY'],
       }),
     );
-
-    await service.createVectorIndex();
-    await service.search([0.1, 0.2], 1);
-
-    expect(session.run).toHaveBeenLastCalledWith(expect.stringContaining('db.index.vector.queryNodes'), {
-      topK: 1,
-      queryEmbedding: [0.1, 0.2],
-      indexName: 'document_embeddings',
-      documentIds: [],
-    });
   });
 });

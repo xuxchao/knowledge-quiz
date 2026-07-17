@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, LessThan, Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { GraphRun, GraphRunStatus } from '../entities/graph-run.entity';
 import { LoggerService, LogServiceCall } from '../common/logger';
 
@@ -37,7 +37,6 @@ export class GraphRunService {
         this.repository.create({
           ...input,
           status: GraphRunStatus.QUEUED,
-          availableAt: new Date(),
         }),
       );
     } catch (error: unknown) {
@@ -62,7 +61,7 @@ export class GraphRunService {
   @LogServiceCall()
   async claimNext(graphName: string, workerId: string): Promise<GraphRun | null> {
     return this.dataSource.transaction(async (manager) => {
-      const rows = await manager.query(
+      const [rows] = await manager.query<[GraphRun[], number]>(
         `
           WITH candidate AS (
             SELECT "id"
@@ -92,7 +91,7 @@ export class GraphRunService {
     await this.repository
       .createQueryBuilder()
       .update(GraphRun)
-      .set({ leaseExpiresAt: new Date(Date.now() + this.leaseMs) })
+      .set({ leaseExpiresAt: () => `CURRENT_TIMESTAMP + (${this.leaseMs} * interval '1 millisecond')` })
       .where('id = :runId AND leaseOwner = :workerId AND status = :status', {
         runId,
         workerId,
@@ -136,7 +135,7 @@ export class GraphRunService {
     await this.repository.update(run.id, {
       status: GraphRunStatus.QUEUED,
       attemptCount,
-      availableAt: new Date(Date.now() + 2000 * 2 ** (attemptCount - 1)),
+      availableAt: () => `CURRENT_TIMESTAMP + (${2000 * 2 ** (attemptCount - 1)} * interval '1 millisecond')`,
       leaseOwner: null,
       leaseExpiresAt: null,
       errorCode: 'GRAPH_RUN_RETRY',
@@ -147,17 +146,32 @@ export class GraphRunService {
 
   @LogServiceCall()
   async releaseExpired(): Promise<number> {
-    const result = await this.repository.update(
-      { status: GraphRunStatus.RUNNING, leaseExpiresAt: LessThan(new Date()) },
-      { status: GraphRunStatus.QUEUED, leaseOwner: null, leaseExpiresAt: null },
-    );
+    const result = await this.repository
+      .createQueryBuilder()
+      .update(GraphRun)
+      .set({ status: GraphRunStatus.QUEUED, leaseOwner: null, leaseExpiresAt: null })
+      .where('status = :status AND "leaseExpiresAt" < CURRENT_TIMESTAMP', { status: GraphRunStatus.RUNNING })
+      .execute();
+    return result.affected ?? 0;
+  }
+
+  @LogServiceCall()
+  async recoverClockSkewedRuns(): Promise<number> {
+    const result = await this.repository
+      .createQueryBuilder()
+      .update(GraphRun)
+      .set({ availableAt: () => 'CURRENT_TIMESTAMP' })
+      .where('status = :status AND "availableAt" > CURRENT_TIMESTAMP + interval \'5 minutes\'', {
+        status: GraphRunStatus.QUEUED,
+      })
+      .execute();
     return result.affected ?? 0;
   }
 
   @LogServiceCall()
   async cleanupExpired(retentionDays: number): Promise<number> {
     return this.dataSource.transaction(async (manager) => {
-      const rows = await manager.query(
+      const rows = await manager.query<Array<{ id: string }>>(
         `SELECT "id" FROM "graph_runs"
          WHERE "status" IN ('succeeded', 'failed')
            AND "updatedAt" < now() - ($1 * interval '1 day')`,

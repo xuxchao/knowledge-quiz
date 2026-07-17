@@ -52,6 +52,75 @@ describe('AiService', () => {
 
     expect(title).toBe('这是一个很长的用户问题，需要被截断成标题使用');
   });
+
+  it('should parse structured output with JsonOutputParser and JSON response mode', async () => {
+    const chatModel = {
+      invoke: jest.fn().mockResolvedValue({ content: '```json\n{"entities":[],"relations":[]}\n```' }),
+    };
+    MockedChatOpenAI.mockImplementation(() => chatModel as never);
+    MockedOpenAIEmbeddings.mockImplementation(() => ({}) as never);
+    const service = new AiService(createConfigService());
+    service.onModuleInit();
+
+    const result = await service.generateStructuredJson<{ entities: unknown[]; relations: unknown[] }>(
+      '抽取实体关系。',
+      '正文',
+      'novel-graph.test',
+    );
+
+    expect(result).toEqual({ entities: [], relations: [] });
+    expect(chatModel.invoke).toHaveBeenCalledWith(
+      [expect.objectContaining({ role: 'system' }), { role: 'user', content: '正文' }],
+      expect.objectContaining({ response_format: { type: 'json_object' } }),
+    );
+  });
+
+  it('should retry malformed structured output and request a complete JSON object', async () => {
+    const chatModel = {
+      invoke: jest
+        .fn()
+        .mockResolvedValueOnce({ content: '{"entities":[' })
+        .mockResolvedValueOnce({ content: '{"entities":[],"relations":[]}' }),
+    };
+    MockedChatOpenAI.mockImplementation(() => chatModel as never);
+    MockedOpenAIEmbeddings.mockImplementation(() => ({}) as never);
+    const service = new AiService(createConfigService());
+    service.onModuleInit();
+
+    await expect(
+      service.generateStructuredJson<{ entities: unknown[]; relations: unknown[] }>(
+        '抽取实体关系。',
+        '正文',
+        'novel-graph.test',
+      ),
+    ).resolves.toEqual({ entities: [], relations: [] });
+    expect(chatModel.invoke).toHaveBeenCalledTimes(2);
+    expect(chatModel.invoke.mock.calls[1][0][0]).toEqual(
+      expect.objectContaining({ content: expect.stringContaining('绝对不要截断JSON') }),
+    );
+  });
+
+  it('should reject a JSON array and retry until the model returns an object', async () => {
+    const chatModel = {
+      invoke: jest
+        .fn()
+        .mockResolvedValueOnce({ content: '[]' })
+        .mockResolvedValueOnce({ content: '{"entities":[],"relations":[]}' }),
+    };
+    MockedChatOpenAI.mockImplementation(() => chatModel as never);
+    MockedOpenAIEmbeddings.mockImplementation(() => ({}) as never);
+    const service = new AiService(createConfigService());
+    service.onModuleInit();
+
+    await expect(
+      service.generateStructuredJson<{ entities: unknown[]; relations: unknown[] }>(
+        '抽取实体关系。',
+        '正文',
+        'novel-graph.test',
+      ),
+    ).resolves.toEqual({ entities: [], relations: [] });
+    expect(chatModel.invoke).toHaveBeenCalledTimes(2);
+  });
 });
 
 const createConfigService = (): ConfigService =>

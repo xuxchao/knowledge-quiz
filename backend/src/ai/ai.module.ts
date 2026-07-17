@@ -4,6 +4,7 @@ import { ChatController } from './chat.controller';
 import { ConversationModule } from '../conversations/conversation.module';
 import { MemoryModule } from '../memory/memory.module';
 import { Neo4jModule } from '../infrastructure/neo4j/neo4j.module';
+import { PostgresVectorModule } from '../infrastructure/postgres-vector/postgres-vector.module';
 import { LangfuseModule } from '../infrastructure/langfuse/langfuse.module';
 import { ElasticsearchModule } from '../infrastructure/elasticsearch/elasticsearch.module';
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -19,6 +20,7 @@ import { RagChatGraph } from './rag-chat.graph';
     ConversationModule,
     MemoryModule,
     Neo4jModule,
+    PostgresVectorModule,
     LangfuseModule,
     ElasticsearchModule,
     TypeOrmModule.forFeature([Chunk]),

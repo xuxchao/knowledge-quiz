@@ -5,6 +5,7 @@ import { Document } from './document.entity';
 @Entity('chunks')
 @Index('IDX_chunks_document', ['documentId', 'chunkIndex'])
 @Index('UQ_chunks_document_index', ['documentId', 'chunkIndex'], { unique: true })
+@Index('IDX_chunks_embedding_hnsw', { synchronize: false })
 export class Chunk {
   @PrimaryGeneratedColumn('uuid')
   id: string;
@@ -59,8 +60,8 @@ export class Chunk {
   @Column({ type: 'uuid', nullable: true })
   ingestionRunId: string | null;
 
-  @Column({ type: 'text', nullable: true })
-  embedding: string;
+  @Column({ type: 'vector', length: 1536, nullable: true })
+  embedding: number[] | null;
 
   @Index({ fulltext: true })
   @Column({ type: 'text', nullable: true })

@@ -14,6 +14,7 @@ import {
 import { ChunkService } from './chunk.service';
 import { DocumentService } from './document.service';
 import { IngestionArtifactService } from './ingestion-artifact.service';
+import { NovelGraphExtractionService } from './novel-graph-extraction.service';
 
 export interface DocumentIngestionInput extends Record<string, unknown> {
   runId: string;
@@ -56,6 +57,7 @@ export class DocumentIngestionGraph {
     private readonly chunkService: ChunkService,
     private readonly fileProcessorService: FileProcessorService,
     private readonly artifactService: IngestionArtifactService,
+    private readonly novelGraphExtractionService: NovelGraphExtractionService,
   ) {}
 
   @LogServiceCall()
@@ -110,9 +112,7 @@ export class DocumentIngestionGraph {
       .addNode('validateDocument', (state) => this.validateDocument(state))
       .addNode('chunk', (state) => this.chunk(state))
       .addNode('embedAndStage', (state) => this.embedAndStage(state))
-      .addNode('indexNeo4j', (state: IngestionGraphState) => this.indexNeo4j(state), {
-        retryPolicy: { maxAttempts: 3 },
-      })
+      .addNode('extractNovelGraph', (state: IngestionGraphState) => this.extractNovelGraph(state))
       .addNode('indexElasticsearch', (state: IngestionGraphState) => this.indexElasticsearch(state), {
         retryPolicy: { maxAttempts: 3 },
       })
@@ -124,9 +124,9 @@ export class DocumentIngestionGraph {
       .addEdge('extract', 'validateDocument')
       .addEdge('validateDocument', 'chunk')
       .addEdge('chunk', 'embedAndStage')
-      .addEdge('embedAndStage', 'indexNeo4j')
+      .addEdge('embedAndStage', 'extractNovelGraph')
       .addEdge('embedAndStage', 'indexElasticsearch')
-      .addEdge(['indexNeo4j', 'indexElasticsearch'], 'finalize')
+      .addEdge(['extractNovelGraph', 'indexElasticsearch'], 'finalize')
       .addEdge('finalize', 'cleanupArtifacts')
       .addEdge('cleanupArtifacts', END);
   }
@@ -185,10 +185,20 @@ export class DocumentIngestionGraph {
     return { chunkCount: enriched.length };
   }
 
-  private async indexNeo4j(state: IngestionGraphState): Promise<Partial<IngestionGraphState>> {
-    await this.setStage(state, ProcessingStage.INDEXING, 75, 'indexNeo4j');
-    await this.withNodeTimeout('indexNeo4j', () => this.chunkService.indexNeo4j(state.documentId));
-    return { indexedStores: ['neo4j'] };
+  private async extractNovelGraph(state: IngestionGraphState): Promise<Partial<IngestionGraphState>> {
+    await this.setStage(state, ProcessingStage.GRAPHING, 85, 'extractNovelGraph');
+    try {
+      await this.novelGraphExtractionService.extractAndStore(state.documentId);
+      return { indexedStores: ['neo4j'] };
+    } catch (error: unknown) {
+      await this.novelGraphExtractionService.markFailed(state.documentId, error);
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger.error(
+        `小说图谱抽取失败，文档保留普通RAG能力 - 文档ID: ${state.documentId}，错误: ${message}`,
+        error instanceof Error ? error.stack : undefined,
+      );
+      return { indexedStores: ['neo4j-failed'] };
+    }
   }
 
   private async indexElasticsearch(state: IngestionGraphState): Promise<Partial<IngestionGraphState>> {
@@ -198,7 +208,8 @@ export class DocumentIngestionGraph {
   }
 
   private async finalize(state: IngestionGraphState): Promise<Partial<IngestionGraphState>> {
-    if (!state.indexedStores.includes('neo4j') || !state.indexedStores.includes('elasticsearch')) {
+    const graphFinished = state.indexedStores.includes('neo4j') || state.indexedStores.includes('neo4j-failed');
+    if (!graphFinished || !state.indexedStores.includes('elasticsearch')) {
       throw new Error('文档外部索引未全部完成');
     }
     await this.chunkService.markIndexed(state.documentId);

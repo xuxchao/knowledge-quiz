@@ -7,7 +7,7 @@ describe('ChunkService consistency', () => {
     content: 'old',
     contentSearch: 'old',
     tokenCount: 3,
-    embedding: '[0.1]',
+    embedding: [0.1],
     metadata: { chunkIndex: 0 },
   };
 
@@ -22,6 +22,7 @@ describe('ChunkService consistency', () => {
       findOne: jest.fn().mockResolvedValue({ ...chunk }),
       save: jest.fn().mockImplementation((value) => value),
       delete: jest.fn().mockResolvedValue({ affected: 1 }),
+      update: jest.fn().mockResolvedValue({ affected: 1 }),
     };
     const queryBuilder = {
       update: jest.fn().mockReturnThis(),
@@ -53,6 +54,10 @@ describe('ChunkService consistency', () => {
       aiService as never,
       neo4jService as never,
       elasticsearchService as never,
+      {
+        extractAndStore: jest.fn().mockResolvedValue(undefined),
+        markFailed: jest.fn().mockResolvedValue(undefined),
+      } as never,
     );
   });
 
@@ -61,19 +66,14 @@ describe('ChunkService consistency', () => {
 
     expect(aiService.generateEmbeddings).toHaveBeenCalledWith(['new content']);
     expect(repository.save).toHaveBeenCalledWith(
-      expect.objectContaining({ content: 'new content', contentSearch: 'new content', embedding: '[0.2,0.3]' }),
-    );
-    expect(neo4jService.addDocuments).toHaveBeenCalledWith(
-      [{ content: 'new content', metadata: { chunkIndex: 0, chunkId: 'chunk-1', documentId: 'doc-1' } }],
-      [[0.2, 0.3]],
+      expect.objectContaining({ content: 'new content', contentSearch: 'new content', embedding: [0.2, 0.3] }),
     );
     expect(result).toEqual(expect.objectContaining({ content: 'new content' }));
   });
 
-  it('deletes the vector node and decrements the document count atomically', async () => {
+  it('deletes the searchable chunk and decrements the document count atomically', async () => {
     await expect(service.delete('chunk-1')).resolves.toBe(true);
 
-    expect(neo4jService.deleteByChunkId).toHaveBeenCalledWith('chunk-1');
     expect(repository.delete).toHaveBeenCalledWith('chunk-1');
     const queryBuilder = manager.createQueryBuilder.mock.results[0].value;
     expect(queryBuilder.set).toHaveBeenCalledWith({ chunkCount: expect.any(Function) });
@@ -103,6 +103,7 @@ describe('ChunkService consistency', () => {
       {} as never,
       {} as never,
       {} as never,
+      {} as never,
     );
 
     const result = await stagingService.stageForDocument(
@@ -111,7 +112,7 @@ describe('ChunkService consistency', () => {
         {
           content: 'new content',
           metadata: {},
-          embedding: '[0.2]',
+          embedding: [0.2],
           chunkIndex: 0,
           totalChunks: 1,
         },

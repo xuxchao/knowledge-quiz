@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, OnApplicationBootstrap, OnApplicationShutdown } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { hostname } from 'node:os';
 import { randomUUID } from 'node:crypto';
@@ -9,7 +9,7 @@ import { DocumentIngestionService } from './document-ingestion.service';
 import { GraphCheckpointService } from '../graph/graph-checkpoint.service';
 
 @Injectable()
-export class DocumentIngestionWorker {
+export class DocumentIngestionWorker implements OnApplicationBootstrap, OnApplicationShutdown {
   private readonly logger = new LoggerService(DocumentIngestionWorker.name);
   private readonly workerId = `${hostname()}:${process.pid}:${randomUUID()}`;
   private readonly pollMs: number;
@@ -17,7 +17,9 @@ export class DocumentIngestionWorker {
   private readonly maxAttempts: number;
   private readonly concurrency: number;
   private readonly retentionDays: number;
+  private readonly autoStart: boolean;
   private running = false;
+  private workerTask?: Promise<void>;
 
   constructor(
     configService: ConfigService,
@@ -30,15 +32,46 @@ export class DocumentIngestionWorker {
     this.maxAttempts = Number(configService.get<string>('GRAPH_WORKER_MAX_ATTEMPTS', '3'));
     this.concurrency = Number(configService.get<string>('GRAPH_WORKER_CONCURRENCY', '2'));
     this.retentionDays = Number(configService.get<string>('GRAPH_CHECKPOINT_RETENTION_DAYS', '7'));
+    this.autoStart = configService.get<string>('INGESTION_WORKER_AUTOSTART', 'true').toLowerCase() !== 'false';
+  }
+
+  onApplicationBootstrap(): void {
+    if (!this.autoStart) {
+      this.logger.info('文档摄取Worker自动启动已关闭');
+      return;
+    }
+    void this.start().catch((error: unknown) => {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      this.logger.error(`文档摄取Worker异常退出 - 错误: ${failure.message}`, failure.stack);
+    });
+  }
+
+  async onApplicationShutdown(): Promise<void> {
+    this.stop();
+    try {
+      await this.workerTask;
+    } catch {
+      // start() already records the root failure.
+    }
   }
 
   @LogServiceCall()
   async start(): Promise<void> {
+    if (this.workerTask) return this.workerTask;
+    this.workerTask = this.run();
+    return this.workerTask;
+  }
+
+  private async run(): Promise<void> {
     this.running = true;
     await this.checkpointService.get();
-    const cleaned = await this.graphRunService.cleanupExpired(this.retentionDays);
+    const [cleaned, released, clockSkewRecovered] = await Promise.all([
+      this.graphRunService.cleanupExpired(this.retentionDays),
+      this.graphRunService.releaseExpired(),
+      this.graphRunService.recoverClockSkewedRuns(),
+    ]);
     this.logger.info(
-      `文档摄取LangGraph Worker已启动 - WorkerID: ${this.workerId}，并发数: ${this.concurrency}，清理运行数: ${cleaned}`,
+      `文档摄取LangGraph Worker已启动 - WorkerID: ${this.workerId}，并发数: ${this.concurrency}，清理运行数: ${cleaned}，释放过期租约: ${released}，修复时钟偏移任务: ${clockSkewRecovered}`,
     );
     await Promise.all(Array.from({ length: this.concurrency }, (_value, index) => this.runLoop(index)));
     this.logger.info('文档摄取LangGraph Worker已停止');

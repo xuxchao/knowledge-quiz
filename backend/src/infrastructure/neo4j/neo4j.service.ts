@@ -1,41 +1,34 @@
-import { Injectable, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
+import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Driver, Session, auth } from 'neo4j-driver';
-import neo4j from 'neo4j-driver';
+import neo4j, { auth, Driver } from 'neo4j-driver';
 import { LoggerService, LogServiceCall } from '../../common/logger';
-
-type Neo4jPrimitive = string | number | boolean;
-type Neo4jPropertyValue = Neo4jPrimitive | Neo4jPrimitive[];
+import type {
+  GraphEvidence,
+  NovelGraphEntity,
+  NovelGraphPayload,
+  NovelGraphRelation,
+  NovelQueryPlan,
+} from './novel-graph.types';
 
 @Injectable()
 export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new LoggerService(Neo4jService.name);
   private driver: Driver;
-  private readonly indexName: string;
-  private readonly embeddingDimensions: number;
-  private activeIndexName: string;
 
-  constructor(private configService: ConfigService) {
-    this.indexName = this.configService.get<string>('NEO4J_VECTOR_INDEX', 'document_embeddings_v2');
-    this.activeIndexName = this.indexName;
-    this.embeddingDimensions = Number(this.configService.get<string>('EMBEDDING_DIMENSIONS', '1536'));
-    if (!/^[A-Za-z0-9_]+$/.test(this.indexName)) throw new Error('NEO4J_VECTOR_INDEX格式无效');
-  }
+  constructor(private readonly configService: ConfigService) {}
 
-  async onModuleInit() {
+  async onModuleInit(): Promise<void> {
     const uri = this.configService.get<string>('NEO4J_URI', 'bolt://localhost:7687');
     const username = this.configService.get<string>('NEO4J_USER', 'neo4j');
     const password = this.configService.get<string>('NEO4J_PASSWORD', 'password');
-
     this.driver = neo4j.driver(uri, auth.basic(username, password));
     await this.driver.verifyConnectivity();
-    await this.createVectorIndex();
-    this.logger.info('Neo4j服务初始化完成');
+    await this.ensureSchema();
+    this.logger.info('Neo4j小说图谱服务初始化完成');
   }
 
-  async onModuleDestroy() {
-    await this.driver.close();
-    this.logger.info('Neo4j连接已关闭');
+  async onModuleDestroy(): Promise<void> {
+    await this.driver?.close();
   }
 
   getDriver(): Driver {
@@ -43,46 +36,21 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   }
 
   @LogServiceCall()
-  async createVectorIndex(): Promise<void> {
+  async ensureSchema(): Promise<void> {
     const session = this.driver.session();
     try {
-      await session.run(`
-        CREATE VECTOR INDEX ${this.indexName} IF NOT EXISTS
-        FOR (c:DocumentChunk)
-        ON c.embedding
-        OPTIONS { indexConfig: {
-          \`vector.dimensions\`: ${this.embeddingDimensions},
-          \`vector.similarity_function\`: 'cosine'
-        }}
-      `);
-      this.activeIndexName = await this.waitForVectorIndex(session);
-      if (this.activeIndexName !== this.indexName) {
-        this.logger.warn(
-          `配置的Neo4j向量索引不存在，复用同架构索引 - 配置索引: ${this.indexName}，实际索引: ${this.activeIndexName}`,
+      for (const label of ['Novel', 'Chapter', 'Character', 'Location', 'Organization', 'Event']) {
+        await session.run(
+          `CREATE CONSTRAINT ${label.toLowerCase()}_id IF NOT EXISTS FOR (n:${label}) REQUIRE n.id IS UNIQUE`,
         );
       }
-    } finally {
-      await session.close();
-    }
-  }
-
-  @LogServiceCall()
-  async addDocuments(
-    documents: { content: string; metadata: Record<string, unknown> }[],
-    embeddings: number[][],
-  ): Promise<void> {
-    const session = this.driver.session();
-    try {
-      const rows = documents.map((document, index) => ({
-        properties: this.buildDocumentChunkProperties(document, embeddings[index]),
-      }));
+      for (const label of ['Character', 'Location', 'Organization', 'Event']) {
+        await session.run(
+          `CREATE INDEX ${label.toLowerCase()}_document_name IF NOT EXISTS FOR (n:${label}) ON (n.documentId, n.normalizedName)`,
+        );
+      }
       await session.run(
-        `
-        UNWIND $rows AS row
-        MERGE (c:DocumentChunk { chunkId: row.properties.chunkId })
-        SET c = row.properties
-        `,
-        { rows },
+        'CREATE INDEX chapter_document_ordinal IF NOT EXISTS FOR (n:Chapter) ON (n.documentId, n.ordinal)',
       );
     } finally {
       await session.close();
@@ -90,126 +58,132 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   }
 
   @LogServiceCall()
-  async addDocumentsBatch(
-    documents: { content: string; metadata: Record<string, unknown> }[],
-    embeddings: number[][],
-    batchSize: number = 50,
-  ): Promise<void> {
-    for (let i = 0; i < documents.length; i += batchSize) {
-      const batchDocs = documents.slice(i, Math.min(i + batchSize, documents.length));
-      const batchEmbs = embeddings.slice(i, Math.min(i + batchSize, embeddings.length));
-      await this.addDocuments(batchDocs, batchEmbs);
-    }
-  }
-
-  @LogServiceCall()
-  async search(
-    queryEmbedding: number[],
-    topK: number = 5,
-    documentIds?: string[],
-  ): Promise<{ content: string; metadata: Record<string, unknown>; score: number }[]> {
+  async replaceNovelGraph(payload: NovelGraphPayload): Promise<void> {
     const session = this.driver.session();
     try {
-      try {
-        return await this.queryVectorIndex(session, queryEmbedding, topK, documentIds);
-      } catch (error: unknown) {
-        if (!this.isMissingVectorIndexError(error)) {
-          throw error;
+      await session.executeWrite(async (transaction) => {
+        await transaction.run('MATCH (n {documentId: $documentId}) DETACH DELETE n', {
+          documentId: payload.novel.documentId,
+        });
+        await transaction.run('CREATE (n:Novel) SET n = $properties', { properties: payload.novel });
+        await transaction.run('UNWIND $rows AS row CREATE (n:Chapter) SET n = row', { rows: payload.chapters });
+        for (const label of ['Character', 'Location', 'Organization', 'Event'] as const) {
+          const rows = payload.entities
+            .filter((entity) => entity.type === label)
+            .map((entity) => this.entityProperties(entity));
+          if (rows.length) await transaction.run(`UNWIND $rows AS row CREATE (n:${label}) SET n = row`, { rows });
         }
-
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        const stackTrace = error instanceof Error ? error.stack : undefined;
-        this.logger.error(
-          `Neo4j向量索引缺失，正在自动重建 - 索引: ${this.activeIndexName}，错误: ${errorMessage}`,
-          stackTrace,
+        for (const type of this.relationTypes()) {
+          const rows = payload.relations
+            .filter((relation) => relation.type === type)
+            .map((relation) => ({
+              ...this.relationProperties(relation),
+              sourceId: relation.sourceId,
+              targetId: relation.targetId,
+            }));
+          if (!rows.length) continue;
+          await transaction.run(
+            `
+              UNWIND $rows AS row
+              MATCH (source {id: row.sourceId}), (target {id: row.targetId})
+              CREATE (source)-[r:${type}]->(target)
+              SET r = row
+              REMOVE r.sourceId, r.targetId
+            `,
+            { rows },
+          );
+        }
+        const relationshipResult = await transaction.run(
+          `
+            MATCH (source {documentId: $documentId})-[relation]->(target {documentId: $documentId})
+            RETURN count(relation) AS count
+          `,
+          { documentId: payload.novel.documentId },
         );
-        await this.createVectorIndex();
-        return await this.queryVectorIndex(session, queryEmbedding, topK, documentIds);
-      }
+        const relationshipCount = this.neo4jNumber(relationshipResult.records[0]?.get('count'), 0);
+        if (relationshipCount === 0) throw new Error('Neo4j图谱写入失败：文档图谱没有任何关联关系');
+        const isolatedNodeResult = await transaction.run(
+          `
+            MATCH (node {documentId: $documentId})
+            WHERE NOT (node)--()
+            RETURN count(node) AS count
+          `,
+          { documentId: payload.novel.documentId },
+        );
+        const isolatedNodeCount = this.neo4jNumber(isolatedNodeResult.records[0]?.get('count'), 0);
+        if (isolatedNodeCount > 0) {
+          throw new Error(`Neo4j图谱写入失败：文档图谱存在${isolatedNodeCount}个孤立节点`);
+        }
+      });
     } finally {
       await session.close();
     }
   }
 
-  private async queryVectorIndex(
-    session: Session,
-    queryEmbedding: number[],
-    topK: number,
-    documentIds?: string[],
-  ): Promise<{ content: string; metadata: Record<string, unknown>; score: number }[]> {
-    const result = await session.run(
-      `
-        CALL db.index.vector.queryNodes($indexName, $topK, $queryEmbedding)
-        YIELD node, score
-        WHERE size($documentIds) = 0 OR node.documentId IN $documentIds
-        RETURN node.content AS content, properties(node) AS properties, score
-        ORDER BY score DESC
-      `,
-      {
-        topK,
-        queryEmbedding,
-        indexName: this.activeIndexName,
-        documentIds: documentIds ?? [],
-      },
-    );
-
-    return result.records.map((record) => ({
-      content: record.get('content') as string,
-      metadata: this.extractMetadata(record.get('properties') as Record<string, unknown>),
-      score: record.get('score') as number,
-    }));
-  }
-
-  private isMissingVectorIndexError(error: unknown): boolean {
-    const message = error instanceof Error ? error.message : String(error);
-    return message.includes('There is no such vector schema index');
-  }
-
-  private async waitForVectorIndex(session: Session): Promise<string> {
-    const timeoutMs = 30000;
-    const deadline = Date.now() + timeoutMs;
-
-    while (Date.now() < deadline) {
+  @LogServiceCall()
+  async searchGraph(plan: NovelQueryPlan, documentIds?: string[], topK = 20): Promise<GraphEvidence[]> {
+    const session = this.driver.session();
+    try {
+      const entities = plan.entities.map((value) => this.normalizeName(value)).filter(Boolean);
       const result = await session.run(
         `
-        SHOW VECTOR INDEXES
-        YIELD name, labelsOrTypes, properties, state, failureMessage
-        WHERE labelsOrTypes = $labelsOrTypes AND properties = $properties
-        RETURN name, state, failureMessage
+          MATCH (source)-[relation]->(target)
+          MATCH (novel:Novel {documentId: source.documentId})
+          WHERE source.documentId = target.documentId
+            AND (size($documentIds) = 0 OR source.documentId IN $documentIds)
+            AND (
+              size($entities) = 0 OR any(entity IN $entities WHERE
+                coalesce(source.normalizedName, '') CONTAINS entity OR
+                coalesce(target.normalizedName, '') CONTAINS entity OR
+                any(alias IN coalesce(source.aliases, []) WHERE toLower(alias) CONTAINS entity) OR
+                any(alias IN coalesce(target.aliases, []) WHERE toLower(alias) CONTAINS entity)
+              )
+            )
+            AND (size($relationshipKinds) = 0 OR type(relation) IN $relationshipKinds OR relation.kind IN $relationshipKinds)
+            AND ($chapterOrdinal IS NULL OR relation.chapterOrdinal = $chapterOrdinal OR source.ordinal = $chapterOrdinal OR target.ordinal = $chapterOrdinal)
+            AND ($novelTitle = '' OR toLower(novel.title) CONTAINS toLower($novelTitle))
+          RETURN properties(source) AS source, type(relation) AS relationType,
+                 properties(relation) AS relation, properties(target) AS target,
+                 novel.title AS documentName
+          ORDER BY coalesce(relation.confidence, 1.0) DESC
+          LIMIT $topK
         `,
         {
-          labelsOrTypes: ['DocumentChunk'],
-          properties: ['embedding'],
+          documentIds: documentIds ?? [],
+          entities,
+          relationshipKinds: plan.relationshipKinds,
+          chapterOrdinal: plan.chapterOrdinal ?? null,
+          novelTitle: plan.novelTitle ?? '',
+          topK: neo4j.int(Math.max(1, Math.min(topK, 100))),
         },
       );
-      const configuredIndex = result.records.find((record) => record.get('name') === this.indexName);
-      const index = configuredIndex ?? result.records[0];
-      const name = index?.get('name') as string | undefined;
-      const state = index?.get('state') as string | undefined;
-      const failureMessage = index?.get('failureMessage') as string | undefined;
 
-      if (name && state === 'ONLINE') {
-        return name;
-      }
-      if (state === 'FAILED') {
-        throw new Error(`Neo4j向量索引创建失败: ${failureMessage || name || this.indexName}`);
-      }
-
-      await new Promise<void>((resolve) => setTimeout(resolve, 250));
+      return result.records.map((record) => {
+        const source = record.get('source') as Record<string, unknown>;
+        const target = record.get('target') as Record<string, unknown>;
+        const relation = record.get('relation') as Record<string, unknown>;
+        const relationType = String(record.get('relationType'));
+        const relationName = typeof relation.kind === 'string' ? relation.kind : relationType;
+        const description = typeof relation.description === 'string' ? `：${relation.description}` : '';
+        return {
+          documentId: String(source.documentId),
+          documentName: String(record.get('documentName')),
+          statement: `${this.displayName(source)} -[${relationName}]-> ${this.displayName(target)}${description}`,
+          evidenceChunkIds: this.stringArray(relation.evidenceChunkIds),
+          confidence: this.neo4jNumber(relation.confidence, 1),
+        };
+      });
+    } finally {
+      await session.close();
     }
-
-    throw new Error(`等待Neo4j向量索引就绪超时: ${this.indexName}`);
   }
 
   @LogServiceCall()
-  async countByDocumentId(documentId: string): Promise<number> {
+  async countGraphNodesByDocumentId(documentId: string): Promise<number> {
     const session = this.driver.session();
     try {
-      const result = await session.run('MATCH (c:DocumentChunk {documentId: $documentId}) RETURN count(c) AS count', {
-        documentId,
-      });
-      const raw = result.records[0]?.get('count') as { toNumber?: () => number } | undefined;
-      return raw?.toNumber?.() ?? Number(raw ?? 0);
+      const result = await session.run('MATCH (n {documentId: $documentId}) RETURN count(n) AS count', { documentId });
+      return this.neo4jNumber(result.records[0]?.get('count'), 0);
     } finally {
       await session.close();
     }
@@ -219,80 +193,71 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   async deleteByDocumentId(documentId: string): Promise<void> {
     const session = this.driver.session();
     try {
-      await session.run(
-        `
-        MATCH (c:DocumentChunk)
-        WHERE c.documentId = $documentId
-        DELETE c
-      `,
-        { documentId },
-      );
+      await session.run('MATCH (n {documentId: $documentId}) DETACH DELETE n', { documentId });
     } finally {
       await session.close();
     }
   }
 
   @LogServiceCall()
-  async deleteByChunkId(chunkId: string): Promise<void> {
+  async deleteLegacyVectorData(): Promise<void> {
     const session = this.driver.session();
     try {
-      await session.run('MATCH (c:DocumentChunk { chunkId: $chunkId }) DELETE c', { chunkId });
+      await session.run('MATCH (c:DocumentChunk) DETACH DELETE c');
+      const indexes = await session.run(
+        "SHOW VECTOR INDEXES YIELD name, labelsOrTypes WHERE 'DocumentChunk' IN labelsOrTypes RETURN name",
+      );
+      for (const record of indexes.records) {
+        const name = String(record.get('name'));
+        if (/^[A-Za-z0-9_]+$/.test(name)) await session.run(`DROP INDEX ${name} IF EXISTS`);
+      }
     } finally {
       await session.close();
     }
   }
 
-  private buildDocumentChunkProperties(
-    document: { content: string; metadata: Record<string, unknown> },
-    embedding: number[],
-  ): Record<string, Neo4jPropertyValue> {
-    return {
-      content: document.content,
-      embedding,
-      ...this.toNeo4jProperties(document.metadata),
-    };
+  private relationTypes(): NovelGraphRelation['type'][] {
+    return [
+      'HAS_CHAPTER',
+      'NEXT_CHAPTER',
+      'APPEARS_IN',
+      'OCCURS_IN',
+      'MENTIONED_IN',
+      'PARTICIPATES_IN',
+      'LOCATED_AT',
+      'MEMBER_OF',
+      'CAUSES',
+      'RELATED_TO',
+    ];
   }
 
-  private toNeo4jProperties(metadata: Record<string, unknown>): Record<string, Neo4jPropertyValue> {
-    return Object.entries(metadata).reduce<Record<string, Neo4jPropertyValue>>((properties, [key, value]) => {
-      const propertyValue = this.toNeo4jPropertyValue(value);
-
-      if (propertyValue !== undefined) {
-        properties[key] = propertyValue;
-      }
-
-      return properties;
-    }, {});
+  private entityProperties(entity: NovelGraphEntity): Record<string, unknown> {
+    const { type: _type, ...properties } = entity;
+    return properties;
   }
 
-  private toNeo4jPropertyValue(value: unknown): Neo4jPropertyValue | undefined {
-    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-      return value;
+  private relationProperties(relation: NovelGraphRelation): Record<string, unknown> {
+    return Object.fromEntries(Object.entries(relation).filter(([, value]) => value !== undefined));
+  }
+
+  private normalizeName(value: string): string {
+    return value.toLowerCase().replace(/[\s\p{P}\p{S}]+/gu, '');
+  }
+
+  private displayName(properties: Record<string, unknown>): string {
+    return String(properties.name ?? properties.title ?? `第${this.neo4jNumber(properties.ordinal, 0)}章`);
+  }
+
+  private stringArray(value: unknown): string[] {
+    return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+  }
+
+  private neo4jNumber(value: unknown, fallback: number): number {
+    if (typeof value === 'number') return value;
+    if (value && typeof value === 'object' && 'toNumber' in value) {
+      return (value as { toNumber(): number }).toNumber();
     }
-
-    if (Array.isArray(value)) {
-      const primitiveValues = value.filter((item): item is Neo4jPrimitive => this.isNeo4jPrimitive(item));
-      const firstType = primitiveValues.length > 0 ? typeof primitiveValues[0] : undefined;
-      const isSupportedArray =
-        primitiveValues.length === value.length && primitiveValues.every((item) => typeof item === firstType);
-
-      return isSupportedArray ? primitiveValues : JSON.stringify(value);
-    }
-
-    if (value === null || value === undefined) {
-      return undefined;
-    }
-
-    return JSON.stringify(value);
-  }
-
-  private isNeo4jPrimitive(value: unknown): value is Neo4jPrimitive {
-    return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean';
-  }
-
-  private extractMetadata(properties: Record<string, unknown>): Record<string, unknown> {
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const { content, embedding, ...metadata } = properties;
-    return metadata;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
   }
 }

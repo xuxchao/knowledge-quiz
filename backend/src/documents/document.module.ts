@@ -13,9 +13,11 @@ import { AiModule } from '../ai/ai.module';
 import { RedisModule } from '../infrastructure/redis/redis.module';
 import { DocumentIngestionService } from './document-ingestion.service';
 import { ElasticsearchModule } from '../infrastructure/elasticsearch/elasticsearch.module';
+import { PostgresVectorModule } from '../infrastructure/postgres-vector/postgres-vector.module';
 import { IngestionArtifactService } from './ingestion-artifact.service';
 import { DocumentIngestionGraph } from './document-ingestion.graph';
 import { DocumentIngestionWorker } from './document-ingestion.worker';
+import { NovelGraphExtractionService } from './novel-graph-extraction.service';
 
 @Module({
   imports: [
@@ -26,6 +28,7 @@ import { DocumentIngestionWorker } from './document-ingestion.worker';
     AiModule,
     RedisModule,
     ElasticsearchModule,
+    PostgresVectorModule,
   ],
   controllers: [DocumentController, ChunkController],
   providers: [
@@ -35,7 +38,8 @@ import { DocumentIngestionWorker } from './document-ingestion.worker';
     IngestionArtifactService,
     DocumentIngestionGraph,
     DocumentIngestionWorker,
+    NovelGraphExtractionService,
   ],
-  exports: [DocumentService, ChunkService, DocumentIngestionService],
+  exports: [DocumentService, ChunkService, DocumentIngestionService, NovelGraphExtractionService],
 })
 export class DocumentModule {}

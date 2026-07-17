@@ -34,8 +34,17 @@ export enum ProcessingStage {
   CHUNKING = 'chunking',
   EMBEDDING = 'embedding',
   INDEXING = 'indexing',
+  GRAPHING = 'graphing',
   PROCESSED = 'processed',
   FAILED = 'failed',
+}
+
+export enum NovelGraphStatus {
+  PENDING = 'pending',
+  PROCESSING = 'processing',
+  READY = 'ready',
+  FAILED = 'failed',
+  STALE = 'stale',
 }
 
 @Entity('documents')
@@ -91,6 +100,18 @@ export class Document {
 
   @Column({ type: 'integer', default: 0 })
   chunkCount: number;
+
+  @Column({ type: 'varchar', default: NovelGraphStatus.PENDING })
+  graphStatus: NovelGraphStatus;
+
+  @Column({ type: 'varchar', nullable: true })
+  graphVersion: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  graphError: string | null;
+
+  @Column({ type: 'timestamp', nullable: true })
+  graphUpdatedAt: Date | null;
 
   @Column({ type: 'bigint', default: 0 })
   fileSize: number;

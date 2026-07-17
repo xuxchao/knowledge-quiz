@@ -24,7 +24,10 @@
     "test:e2e": "jest --config ./test/jest-e2e.json",
     "rag:reindex": "ts-node src/cli/rag-maintenance.ts reindex",
     "rag:reindex-one": "ts-node src/cli/rag-maintenance.ts reindex-one",
-    "rag:check": "ts-node src/cli/rag-maintenance.ts check"
+    "rag:check": "ts-node src/cli/rag-maintenance.ts check",
+    "rag:graph-rebuild": "ts-node src/cli/rag-maintenance.ts graph-rebuild",
+    "rag:graph-rebuild-one": "ts-node src/cli/rag-maintenance.ts graph-rebuild-one",
+    "rag:cleanup-legacy-neo4j": "ts-node src/cli/rag-maintenance.ts cleanup-legacy-neo4j"
   },
   "dependencies": {
     "@ai-sdk/langchain": "^3.0.17",

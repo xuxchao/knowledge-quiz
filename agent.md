@@ -1,97 +1,138 @@
 # Agent Guide
 
-This file is written for future AI/coding agents working in this repository. It summarizes the current project shape, useful commands, and conventions so project questions can be answered with less rediscovery.
+This guide is for AI/coding agents working in `knowledge-quiz2`. It describes the repository as it exists on 2026-07-17. Read the relevant implementation before changing behavior; the worktree may contain newer, uncommitted work.
 
 ## Project Summary
 
-`knowledge-quiz2` is a pnpm workspace for an AI knowledge document system. It has:
+`knowledge-quiz2` is a pnpm monorepo for an AI knowledge-document and novel-question-answering system:
 
-- `backend/`: NestJS 11 + TypeScript API service.
+- `backend/`: NestJS 11 API, document ingestion worker, LangGraph workflows, and infrastructure integrations.
 - `frontend/`: Vue 3 + TypeScript + Vite single-page UI.
-- `docker-compose.yml`: local infrastructure for PostgreSQL, Redis, Elasticsearch, Neo4j, ClickHouse, RustFS, Langfuse, and admin tools.
+- `docker-compose.yml`: local PostgreSQL/pgvector, Elasticsearch/Kibana, Neo4j, Redis, RustFS, Mem0, Langfuse, ClickHouse, and admin tools.
+- `docker-compose.prod.yml`: containerized backend, a separate ingestion worker, frontend, and production infrastructure.
 
-Core product flow:
+The current RAG design uses each store for a distinct purpose:
 
-1. Users upload files or URLs.
-2. The backend stores source files in RustFS, extracts text, chunks content, creates embeddings, and stores metadata/chunks.
-3. Chat requests combine the latest user message with relevant Neo4j vector search results and short/long-term memory, then stream a Chinese answer through the AI SDK transport.
-4. The frontend offers two main views: AI conversation and backend/data management.
+- PostgreSQL is the source of truth for documents, chunks, conversations, messages, graph-run state, LangGraph checkpoints, and chunk vectors through pgvector.
+- Elasticsearch provides keyword/full-text retrieval.
+- Neo4j stores novel structure and relationships, not chunk embeddings.
+- RustFS stores original uploaded files and temporary ingestion artifacts.
+- Mem0 stores user-level and conversation-level semantic memory.
 
 ## Repository Layout
 
 ```text
 .
-├── backend/
-│   ├── src/
-│   │   ├── ai/                    # Qwen/OpenAI-compatible chat and embeddings
-│   │   ├── common/                # logger, filters, interceptors
-│   │   ├── config/                # TypeORM config
-│   │   ├── conversations/         # conversations and messages
-│   │   ├── documents/             # document and chunk APIs
-│   │   ├── entities/              # TypeORM entities
-│   │   ├── infrastructure/        # Redis, Neo4j, RustFS, speech, file processing
-│   │   ├── memory/                # memory services
-│   │   ├── app.module.ts
-│   │   └── main.ts
-│   └── package.json
-├── frontend/
-│   ├── src/
-│   │   ├── components/            # conversation and document UI pieces
-│   │   ├── composables/           # API/state logic for documents and conversations
-│   │   ├── core/http.ts           # Axios client and backend base URL
-│   │   ├── pages/                 # AI conversation and backend management pages
-│   │   ├── types/
-│   │   ├── App.vue
-│   │   └── main.ts
-│   └── package.json
-├── docker/
-├── scripts/
-├── .env.example
-├── docker-compose.yml
-├── package.json
-└── pnpm-workspace.yaml
+|-- backend/
+|   |-- src/
+|   |   |-- ai/                     # chat, retrieval graph, RAG chat graph, token budgets
+|   |   |-- common/                 # structured logger, filters, interceptors
+|   |   |-- config/                 # TypeORM configuration
+|   |   |-- conversations/          # conversations and persisted messages
+|   |   |-- documents/              # upload, parsing, ingestion graph/worker, novel graph extraction
+|   |   |-- entities/               # TypeORM entities
+|   |   |-- graph/                  # graph runs and PostgreSQL LangGraph checkpoints
+|   |   |-- infrastructure/
+|   |   |   |-- elasticsearch/      # keyword index/search
+|   |   |   |-- file-processor/     # structured multi-format extraction
+|   |   |   |-- langfuse/           # traces and scores
+|   |   |   |-- mem0/               # long-term memory client
+|   |   |   |-- neo4j/              # novel entity/relationship graph
+|   |   |   |-- postgres-vector/    # pgvector cosine search and index checks
+|   |   |   |-- redis/              # Redis integration
+|   |   |   |-- rustfs/             # S3-compatible object storage
+|   |   |   `-- speech/             # Tencent ASR/TTS
+|   |   |-- memory/
+|   |   |-- migrations/
+|   |   `-- cli/                    # ingestion worker and RAG maintenance commands
+|   `-- test/
+|-- frontend/
+|   `-- src/
+|       |-- components/
+|       |-- composables/
+|       |-- core/http.ts
+|       |-- pages/
+|       `-- types/
+|-- docker/
+|-- docs/
+|-- scripts/
+|-- .env.example
+|-- docker-compose.yml
+|-- docker-compose.prod.yml
+|-- package.json
+`-- pnpm-workspace.yaml
 ```
 
-## Tech Stack
+## Core Runtime Flows
 
-Backend:
+### Document ingestion
 
-- NestJS 11, TypeScript, TypeORM.
-- PostgreSQL for relational data.
-- Neo4j vector index for document chunk retrieval.
-- Redis for infrastructure/cache features.
-- RustFS/S3-compatible storage for uploaded files.
-- LangChain, `@langchain/openai`, and AI SDK integration.
-- Qwen/DashScope through an OpenAI-compatible API base.
-- Langfuse infrastructure is present in Docker.
+`POST /api/documents` stores an upload in RustFS (or records a URL), creates a `Document`, and creates an idempotent `graph_runs` row. `DocumentIngestionWorker` claims runs from PostgreSQL with `FOR UPDATE SKIP LOCKED`, maintains a lease/heartbeat, retries with exponential backoff, and resumes through a PostgreSQL LangGraph checkpoint.
 
-Frontend:
+`DocumentIngestionGraph` currently runs:
 
-- Vue 3 with Composition API and `<script setup>`.
-- TypeScript, Vite, Pinia, Axios.
-- UnoCSS and Tailwind reset.
-- Lucide Vue icons.
-- `@ai-sdk/vue` and `DefaultChatTransport` for streaming chat.
+1. `prepare`
+2. `cleanupPrevious`
+3. `extract`
+4. `validateDocument`
+5. `chunk`
+6. `embedAndStage`
+7. `extractNovelGraph` and `indexElasticsearch` in parallel
+8. `finalize`
+9. `cleanupArtifacts`
+
+`embedAndStage` persists chunk records and 1536-dimensional embeddings in PostgreSQL. The pgvector HNSW cosine index is `IDX_chunks_embedding_hnsw`. Novel graph extraction is best-effort: a graph failure is recorded on the document but does not discard otherwise valid text indexes. Terminal ingestion failures trigger compensating cleanup.
+
+In development, the API starts the worker automatically unless `INGESTION_WORKER_AUTOSTART=false`. Production Compose disables it in the API container and runs the `ingestion-worker` service separately.
+
+### Retrieval and chat
+
+`RetrievalGraph` analyzes a question into `text`, `graph`, or `hybrid` mode. It can run three retrieval branches in parallel:
+
+- PostgreSQL pgvector cosine search for semantic chunk recall.
+- Elasticsearch for keyword recall.
+- Neo4j for novel entities, chapters, events, and relationships.
+
+Text hits are fused with RRF, reranked with `gte-rerank-v2`, filtered to the top relevant chunks, and expanded with neighboring chunks within a token budget. Graph evidence is attached using its source chunk IDs. Individual branches degrade independently; the request fails only when every branch required by the selected mode is unavailable.
+
+`RagChatGraph` combines retrieved chunks, graph evidence, Mem0 memories, and persisted conversation history. It streams AI SDK-compatible events, persists the assistant response and citations, updates both memory scopes, and can asynchronously score groundedness in Langfuse when agentic mode is enabled.
+
+## Important Backend APIs
+
+All routes use the global `/api` prefix.
+
+- `POST /api/documents`: upload one multipart `file` or submit a `url`; returns HTTP 202 and a `jobId`.
+- `GET /api/documents`: paginated list with optional `name`, `page`, and `limit`.
+- `GET /api/documents/:id`: document with chunks.
+- `GET /api/documents/:id/ingestion`: run progress plus novel graph status.
+- `GET /api/documents/:id/download`: download the original uploaded object.
+- `DELETE /api/documents/:id`: delete document data and associated artifacts/indexes.
+- `GET|PUT|DELETE /api/chunks/:id` and `GET /api/chunks?documentId=...`: chunk management.
+- `GET /api/conversations`, `GET /api/conversations/get/:id`, `DELETE /api/conversations/delete/:id`: conversation management.
+- `POST /api/conversations/chat`: streaming RAG chat.
+
+Supported uploads are PDF, DOC/DOCX, XLS/XLSX, CSV, PPT/PPTX, TXT, Markdown, JSON, JPG/JPEG/PNG/GIF/WebP, MP3/WAV/M4A, and MP4. Uploads are limited to 50 MiB and checked against basic file signatures.
 
 ## Environment
 
-Use `.env.example` as the reference. The backend loads env vars from `../.env` through `ConfigModule.forRoot({ envFilePath: '../.env' })`, so running backend scripts from `backend/` expects the root `.env`.
+The root `.env.example` is authoritative. `ConfigModule` resolves the root `.env` by absolute path, including for CLI entry points.
 
-Important variables:
+Critical groups:
 
-- `BACKEND_PORT`, default behavior differs by place:
-  - `.env.example` uses `3001`.
-  - `backend/src/main.ts` falls back to `3000` when unset.
-  - `frontend/src/core/http.ts` falls back to `VITE_BACKEND_PORT=3000`.
-- `QWEN_API_KEY` is required by `AiService.onModuleInit()`. The backend will fail during startup if it is missing.
-- `QWEN_API_BASE_URL` defaults to `https://dashscope.aliyuncs.com/compatible-mode/v1`.
-- PostgreSQL defaults: database `knowledge_doc`, user `admin`, password `password`.
-- Neo4j defaults: `bolt://localhost:7687`, user `neo4j`, password `password`.
-- RustFS defaults are configured in `docker-compose.yml`.
+- API/UI: `BACKEND_HOST`, `BACKEND_PORT`, `VITE_API_BASE_URL`.
+- Model access: `QWEN_API_KEY`, `QWEN_API_BASE_URL`, `QWEN_VISION_MODEL`, `QWEN_RERANK_MODEL`.
+- Stores: `POSTGRES_*`, `ELASTICSEARCH_*`, `NEO4J_*`, `RUSTFS_*`, `REDIS_*`.
+- Ingestion: `RAG_PARSER_VERSION`, `GRAPH_WORKER_*`, `GRAPH_NODE_TIMEOUT_MS`, `INGESTION_WORKER_AUTOSTART`.
+- Novel graph: `NOVEL_GRAPH_*`.
+- Retrieval/context: `EMBEDDING_DIMENSIONS`, `RAG_MIN_SCORE`, `RAG_CONTEXT_TOKEN_BUDGET`, `RAG_GRAPH_CONTEXT_TOKEN_BUDGET`, `RAG_AGENTIC_*`.
+- Memory/observability: `MEM0_*`, `LANGFUSE_*`, `CLICKHOUSE_*`.
+- Media processing: `FFMPEG_PATH`, `LIBREOFFICE_PATH`, `TENCENT_*`.
 
-Do not expose real values from `.env` in answers or generated files.
+Do not reveal or copy real values from `.env`. `QWEN_API_KEY` is required at backend initialization. The configured embedding model and `EMBEDDING_DIMENSIONS` must agree with the `vector(1536)` column and HNSW index; changing dimensions requires a schema/data migration, not only an env change.
 
-## Common Commands
+The example currently sets `BACKEND_PORT=3001` but `VITE_API_BASE_URL=http://localhost:3000`. Align these values locally, for example by setting `VITE_API_BASE_URL=http://localhost:3001` when the backend listens on 3001.
+
+## Commands
 
 From the repository root:
 
@@ -109,10 +150,12 @@ Backend:
 ```powershell
 cd backend
 pnpm run start:dev
+pnpm run start:ingestion-worker
 pnpm run build
-pnpm run lint
+pnpm run typecheck
 pnpm run test
 pnpm run test:e2e
+pnpm run lint
 ```
 
 Frontend:
@@ -125,161 +168,56 @@ pnpm run lint:check
 pnpm run format:check
 ```
 
-Notes for agents:
+RAG maintenance, from `backend/`:
 
-- This is a Windows/PowerShell workspace.
-- Backend `start:*` scripts use `set NODE_OPTIONS=... && ...`, which is Windows `cmd` syntax. Run them through pnpm as written.
-- Before running package-manager, Docker, Jest, ESLint, TypeScript, or dev-server commands in Codex, check the project permission guard skill if available.
+```powershell
+pnpm run rag:check
+pnpm run rag:reindex
+pnpm run rag:reindex-one -- <documentId>
+pnpm run rag:graph-rebuild
+pnpm run rag:graph-rebuild-one -- <documentId>
+pnpm run rag:cleanup-legacy-neo4j
+```
 
-## Backend Architecture
+`rag:check` verifies PostgreSQL chunk counts, populated vectors, the cosine HNSW index, Elasticsearch counts, and the presence of graph nodes for graph-ready documents. `rag:cleanup-legacy-neo4j` permanently removes old Neo4j `DocumentChunk` nodes/vector indexes; use it only after pgvector reindexing has been verified.
 
-`backend/src/main.ts`:
+## Database and Migration Notes
 
-- Creates the Nest app.
-- Enables CORS.
-- Sets global API prefix to `/api`.
-- Adds `ValidationPipe({ whitelist: true, transform: true })`.
-- Installs HTTP and catch-all exception filters.
-- Uses the custom `LoggerService`.
+- Local PostgreSQL uses `pgvector/pgvector:pg16`; plain `postgres:16` is no longer sufficient.
+- Migration `1784200000000-NovelHybridRag.ts` enables `vector`, converts `chunks.embedding` to `vector(1536)`, creates the HNSW index, and adds document graph-status fields.
+- Migration `1784100000000-LangGraphRuns.ts` creates `graph_runs` and chunk-run/idempotency indexes.
+- TypeORM `synchronize` is enabled outside production. Production runs migrations unless `TYPEORM_MIGRATIONS_RUN=false`.
+- LangGraph checkpoints live under PostgreSQL schema `langgraph` and completed/failed checkpoints are retained according to `GRAPH_CHECKPOINT_RETENTION_DAYS`.
+- Reset and cleanup commands can destroy local data in `volumes/`; inspect their targets before running them.
 
-`backend/src/app.module.ts` imports:
+## Frontend Notes
 
-- `ConfigModule` globally.
-- Custom `LoggerModule`.
-- TypeORM async config.
-- `ConversationModule`.
-- `DocumentModule`.
-- `AiModule`.
-- `MemoryModule`.
+- Use Vue 3 Composition API and `<script setup lang="ts">`.
+- `App.vue` switches between the conversation and data-management pages with local state. Vue Router is installed but is not currently used for page routing.
+- API state belongs in composables such as `useConversation` and `useDocument`.
+- `frontend/src/core/http.ts` uses `VITE_API_BASE_URL`; request paths already include `/api`.
+- Use the existing UnoCSS utilities and `lucide-vue-next` icons.
+- There is no frontend test runner. Verify frontend changes with build, check-only lint, and Prettier check.
 
-Database entities:
+## Testing and Agent Rules
 
-- `Document`: file or URL metadata, status, path/url, chunk count, metadata.
-- `Chunk`: document chunk text, token count, metadata, embedding string, search text.
-- `Conversation`: user conversation with message count and metadata.
-- `Message`: user/assistant/system message content and optional references.
-
-Important backend routes, all under `/api` because of the global prefix:
-
-- `POST /api/documents`: upload a multipart `file` or JSON/body `url`.
-- `GET /api/documents`: list documents, supports `name`, `page`, `limit`.
-- `GET /api/documents/:id`: get document with chunks.
-- `DELETE /api/documents/:id`: delete a document.
-- `GET /api/chunks?documentId=...`: list chunks for a document.
-- `GET /api/chunks/:id`: get one chunk.
-- `PUT /api/chunks/:id`: update chunk content.
-- `DELETE /api/chunks/:id`: delete chunk.
-- `GET /api/conversations`: list conversations, optional `userId`.
-- `GET /api/conversations/get/:id`: get a conversation.
-- `DELETE /api/conversations/delete/:id`: delete a conversation.
-- `POST /api/conversations/chat`: stream chat responses using AI SDK UI message streams.
-
-AI/chat behavior:
-
-- `AiService` initializes a `ChatOpenAI` model using Qwen-compatible settings.
-- Chat model: `qwen-plus`.
-- Embedding model: `text-embedding-v2`.
-- Chat controller creates a conversation when `conversationId` is missing.
-- User messages and assistant responses are persisted.
-- Short-term memory is saved synchronously. Long-term memory save is started without awaiting.
-- Relevant document chunks come from Neo4j vector search using a `DocumentChunk` vector index with 1536 dimensions.
-
-Document processing behavior:
-
-- File names are normalized and non-ASCII multipart filenames are decoded from latin1 when needed.
-- Files are uploaded to RustFS under `documentId/fileName`.
-- Processing extracts text, splits it, stores embeddings/chunks, creates DB chunk records, then updates document status/count.
-- Supported file type mapping is in `DocumentController.FILE_TYPE_MAP`.
-
-## Frontend Architecture
-
-`frontend/src/main.ts`:
-
-- Creates the Vue app.
-- Installs Pinia.
-- Imports UnoCSS reset and generated `uno.css`.
-- Mounts `App.vue`.
-
-`frontend/src/App.vue`:
-
-- Keeps local page state only.
-- Switches between `AiConversationPage` and `BackendManagementPage`.
-- There is no Vue Router route table currently, despite README mentioning routes.
-
-HTTP:
-
-- `frontend/src/core/http.ts` builds `baseURL` from `VITE_BACKEND_HOST` and `VITE_BACKEND_PORT`.
-- Composables include `/api/...` in request paths.
-- Chat uses `${baseURL}/api/conversations/chat`.
-
-State/API composables:
-
-- `useConversation`: wraps `@ai-sdk/vue` `useChat`, conversation list loading, selection, creation, deletion.
-- `useDocument`: wraps document list/search, upload, URL processing, chunk viewing/editing/deletion.
-
-Frontend conventions:
-
-- Prefer Vue 3 Composition API with `<script setup lang="ts">`.
-- Keep API logic in composables when it is shared or stateful.
-- Use existing UnoCSS utility style before adding new styling systems.
-- Use `lucide-vue-next` icons for action buttons/icons when an icon is needed.
-
-## Testing And Quality
-
-Backend:
-
-- Jest config lives in `backend/package.json`.
-- Unit specs live beside backend code as `*.spec.ts`.
-- E2E config is `backend/test/jest-e2e.json`.
-- Mocks exist for `uuid` and `node-fetch`.
-
-Frontend:
-
-- No test runner is currently configured.
-- Use `pnpm run build`, `pnpm run lint:check`, and `pnpm run format:check` for verification.
-
-Linting:
-
-- Root `pnpm lint` runs backend and frontend lint in parallel.
-- Backend `lint` and frontend `lint` use `--fix`, so prefer check-only commands where available if you only want validation.
-- Frontend has `lint:check`; backend currently does not expose a check-only lint script.
-
-## Local Infrastructure
-
-`docker-compose.yml` defines:
-
-- Redis on `6379`, RedisInsight on `5540`.
-- PostgreSQL on `5432`, pgAdmin on `8086`.
-- Elasticsearch on `9200` and `9300`.
-- Neo4j browser on `7474`, Bolt on `7687`.
-- ClickHouse on `8123` and `9000`.
-- RustFS S3 API on `9004` and console on `9005`.
-- RustFS on `9004` and console `9005`.
-- Langfuse on `3005` and `8085`.
-
-The compose file mounts persistent data under `volumes/` plus named volumes. Be careful with cleanup/reset operations; they may destroy local data.
-
-## Development Guidelines For Agents
-
-- First inspect existing code patterns before editing.
-- Do not revert unrelated user changes. This worktree may be dirty.
-- Prefer focused changes in the relevant module instead of broad refactors.
-- Use `rg`/`rg --files` for repository search.
-- Use `apply_patch` for manual file edits.
-- For NestJS changes, follow module/controller/service patterns already present.
-- For Vue changes, use Composition API and TypeScript.
-- If editing TypeScript/JavaScript service, controller, or infrastructure code, run the project `code-log-checker` skill if available.
-- Avoid committing secrets or copying real `.env` values into docs.
-- If changing API paths, remember the backend global prefix `/api` and update frontend composables together.
-- If changing AI/chat behavior, check both `backend/src/ai/*` and `frontend/src/composables/useConversation.ts`.
-- If changing document upload/chunking, check `DocumentController`, `DocumentService`, `ChunkService`, `FileProcessorService`, `RustfsService`, and `Neo4jService`.
+- This is a Windows/PowerShell workspace. Before pnpm/npm/npx/Jest/ESLint/TypeScript/build, Docker, background-server, destructive-cleanup, or Codex-session scanning commands, read and follow the project `project-permission-guard` skill when available.
+- If any code file is created, edited, renamed, or deleted, run the `code-log-checker` skill when available.
+- For NestJS work, use the `nestjs-best-practices` skill. For Vue work, use `vue-best-practices`. For Jest work, use `javascript-typescript-jest`.
+- Inspect `git status` first and preserve unrelated user changes. Never assume a dirty worktree is disposable.
+- Use `rg`/`rg --files` for discovery and `apply_patch` for manual edits.
+- Prefer focused changes that follow current module/controller/service patterns.
+- Backend `lint` and root `lint` run ESLint with `--fix`; use check-only or targeted commands when you do not intend to modify files.
+- Unit specs are colocated as `*.spec.ts`; Jest's `rootDir` is `backend/src`.
+- When changing retrieval, inspect `retrieval.graph.ts`, `retrieval.service.ts`, all three backing stores, `rag-chat.graph.ts`, and citations.
+- When changing ingestion, inspect the ingestion graph, worker, graph-run/checkpoint services, chunk service, artifact cleanup, and all destination indexes.
+- Keep PostgreSQL as the business source of truth. Do not reintroduce Neo4j chunk vectors or treat Mem0 as the full conversation record.
 
 ## Known Gotchas
 
-- The README is slightly ahead/behind the current frontend: it mentions routes/stores, but the current app switches pages locally in `App.vue` and has no router setup.
-- Backend defaults to port `3000` if `BACKEND_PORT` is unset, while `.env.example` suggests `3001`.
-- `QWEN_API_KEY` is mandatory at backend startup.
-- Neo4j vector index assumes 1536-dimensional embeddings. If the embedding model changes dimensions, update the index configuration and existing data.
-- TypeORM `synchronize` is enabled outside production. Schema changes can apply automatically in development.
-- Root `pnpm lint` and package lint scripts may modify files because they run ESLint with `--fix`.
-- `frontend/src/core/http.ts` defaults to `localhost:3000`; set `VITE_BACKEND_PORT` if backend uses `3001`.
+- Older docs and articles may describe Neo4j vector retrieval or BullMQ ingestion. The current implementation uses PostgreSQL pgvector and PostgreSQL-backed graph runs.
+- Novel graph extraction currently runs for every ingested document; it may record `graphStatus=failed` for non-novel or unsuitable content while text ingestion still succeeds.
+- `embedAndStage` feeds both PostgreSQL vector storage and the later Elasticsearch branch; there is no separate Neo4j vector-index stage.
+- A production API container does not process queued documents by itself because `INGESTION_WORKER_AUTOSTART=false`; the separate worker must be healthy.
+- `rag:reindex` and `rag:graph-rebuild` enqueue/process all documents and can incur substantial model cost.
+- Do not change the embedding dimension by environment variable alone.

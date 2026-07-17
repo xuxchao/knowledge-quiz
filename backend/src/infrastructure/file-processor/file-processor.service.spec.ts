@@ -131,8 +131,25 @@ describe('FileProcessorService', () => {
       ]);
 
       expect(chunks).toEqual([
-        expect.objectContaining({ tokenCount: expect.any(Number), metadata: { sheetName: 'Sheet1', rowRange: '2:2' } }),
+        expect.objectContaining({
+          tokenCount: expect.any(Number),
+          metadata: expect.objectContaining({ sheetName: 'Sheet1', rowRange: '2:2', chapterOrdinal: 1 }),
+        }),
       ]);
+    });
+
+    it('should split chapter headings before applying overlap', async () => {
+      const chunks = await service.splitSections([
+        {
+          text: '第一章 初见\n甲遇见乙。\n第二章 决裂\n甲与乙成为敌人。',
+          type: 'paragraph',
+          metadata: {},
+        },
+      ]);
+
+      expect(chunks).toHaveLength(2);
+      expect(chunks.map((chunk) => chunk.metadata.chapterTitle)).toEqual(['第一章 初见', '第二章 决裂']);
+      expect(chunks.map((chunk) => chunk.metadata.chapterOrdinal)).toEqual([1, 2]);
     });
   });
 

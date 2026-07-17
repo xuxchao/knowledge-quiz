@@ -437,7 +437,7 @@ export class FileProcessorService {
   @LogServiceCall()
   splitSections(sections: ParsedSection[], chunkSize = 400, chunkOverlap = 60): Promise<StructuredChunk[]> {
     const output: StructuredChunk[] = [];
-    for (const section of sections) {
+    for (const section of this.annotateNovelChapters(sections)) {
       const tokens = this.tokenizer.encode(section.text);
       if (tokens.length <= chunkSize) {
         output.push({ ...section, tokenCount: tokens.length });
@@ -451,6 +451,50 @@ export class FileProcessorService {
       }
     }
     return Promise.resolve(output);
+  }
+
+  private annotateNovelChapters(sections: ParsedSection[]): ParsedSection[] {
+    const output: ParsedSection[] = [];
+    let chapterOrdinal = 1;
+    let chapterTitle = '正文';
+    let hasExplicitChapter = false;
+    const chapterHeading = /^\s*((?:第[零〇一二两三四五六七八九十百千万\d]+[章节回卷部篇])|(?:chapter\s+\d+))[^\n]*$/i;
+
+    for (const section of sections) {
+      const headingCandidate = section.metadata.headingPath?.at(-1)?.trim();
+      if (headingCandidate && chapterHeading.test(headingCandidate)) {
+        if (hasExplicitChapter && headingCandidate !== chapterTitle) chapterOrdinal += 1;
+        chapterTitle = headingCandidate;
+        hasExplicitChapter = true;
+      }
+
+      let current: string[] = [];
+      const flush = () => {
+        const text = current.join('\n').trim();
+        if (!text) return;
+        output.push({
+          ...section,
+          text,
+          metadata: { ...section.metadata, chapterOrdinal, chapterTitle },
+        });
+        current = [];
+      };
+
+      for (const line of section.text.split(/\r?\n/)) {
+        const match = chapterHeading.exec(line);
+        if (!match) {
+          current.push(line);
+          continue;
+        }
+        flush();
+        if (hasExplicitChapter) chapterOrdinal += 1;
+        chapterTitle = line.trim();
+        hasExplicitChapter = true;
+      }
+      flush();
+    }
+
+    return output.length ? output : sections;
   }
 
   @LogServiceCall()
@@ -467,7 +511,7 @@ export class FileProcessorService {
     Array<{
       content: string;
       metadata: Record<string, unknown>;
-      embedding: string;
+      embedding: number[];
       chunkIndex: number;
       totalChunks: number;
       tokenCount?: number;
@@ -491,7 +535,7 @@ export class FileProcessorService {
     const enrichedChunks: Array<{
       content: string;
       metadata: Record<string, unknown>;
-      embedding: string;
+      embedding: number[];
       chunkIndex: number;
       totalChunks: number;
     }> = [];
@@ -528,8 +572,9 @@ export class FileProcessorService {
               documentName,
               chunkIndex: batchIndices[j],
               totalChunks,
+              chapterId: `${documentId}:chapter:${Number(sectionMetadata.chapterOrdinal ?? 1)}`,
             },
-            embedding: JSON.stringify(embeddings[j]),
+            embedding: embeddings[j],
             chunkIndex: batchIndices[j],
             totalChunks,
             tokenCount: typeof chunk === 'string' ? this.estimateTokenCount(content) : chunk.tokenCount,

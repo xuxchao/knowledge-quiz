@@ -52,9 +52,9 @@ export class PostgresVectorService implements OnModuleInit {
           d."name" AS "documentName",
           1 - (c."embedding" <=> $1::vector) AS "score"
         FROM "chunks" c
-        INNER JOIN "documents" d ON d."id"::text = c."documentId"
+        INNER JOIN "documents" d ON d."id" = c."documentId"
         WHERE c."embedding" IS NOT NULL
-          AND (cardinality($2::text[]) = 0 OR c."documentId" = ANY($2::text[]))
+          AND (cardinality($2::uuid[]) = 0 OR c."documentId" = ANY($2::uuid[]))
         ORDER BY c."embedding" <=> $1::vector
         LIMIT $3
       `,

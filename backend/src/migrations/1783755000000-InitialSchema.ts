@@ -25,7 +25,7 @@ export class InitialSchema1783755000000 implements MigrationInterface {
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "chunks" (
         "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-        "documentId" varchar NOT NULL,
+        "documentId" uuid NOT NULL,
         "content" text NOT NULL,
         "chunkIndex" integer NOT NULL,
         "tokenCount" integer NOT NULL DEFAULT 500,

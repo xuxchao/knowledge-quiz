@@ -29,7 +29,7 @@ describe('PostgresVectorService', () => {
       query: jest.fn().mockResolvedValue([
         {
           chunkId: 'chunk-1',
-          documentId: 'doc-1',
+          documentId: '11111111-1111-4111-8111-111111111111',
           content: '正文',
           chunkIndex: 0,
           metadata: { chapterOrdinal: 1 },
@@ -44,13 +44,12 @@ describe('PostgresVectorService', () => {
     );
     const embedding = Array.from({ length: 1536 }, () => 0.01);
 
-    const result = await service.search(embedding, 5, ['doc-1']);
+    const result = await service.search(embedding, 5, ['11111111-1111-4111-8111-111111111111']);
 
-    expect(dataSource.query).toHaveBeenCalledWith(expect.stringContaining('<=> $1::vector'), [
-      expect.stringMatching(/^\[0\.01,/),
-      ['doc-1'],
-      5,
-    ]);
+    expect(dataSource.query).toHaveBeenCalledWith(
+      expect.stringMatching(/d\."id" = c\."documentId"[\s\S]*cardinality\(\$2::uuid\[\]\)/),
+      [expect.stringMatching(/^\[0\.01,/), ['11111111-1111-4111-8111-111111111111'], 5],
+    );
     expect(result).toEqual([
       expect.objectContaining({ score: 0.91, metadata: expect.objectContaining({ chunkId: 'chunk-1' }) }),
     ]);

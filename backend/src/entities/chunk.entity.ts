@@ -15,7 +15,7 @@ export class Chunk {
   })
   document: Relation<Document>;
 
-  @Column({ type: 'varchar' })
+  @Column({ type: 'uuid' })
   documentId: string;
 
   @Column({ type: 'text' })

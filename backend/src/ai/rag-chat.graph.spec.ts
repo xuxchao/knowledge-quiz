@@ -35,6 +35,7 @@ describe('RagChatGraph', () => {
     ).resolves.toEqual({ memories: [], chunks: [], graphEvidence: [] });
     expect(retrievalGraph.retrieve).toHaveBeenCalledWith('测试查询', ['doc-1'], {
       conversationId: 'conversation-1',
+      userId: 'user-1',
     });
   });
 });

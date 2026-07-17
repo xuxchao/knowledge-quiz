@@ -14,7 +14,7 @@ describe('MemoryService', () => {
       deleteConversationMemories: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<Mem0Service>;
     service = new MemoryService(mem0Service, {
-      get: jest.fn((_key: string, defaultValue?: string) => defaultValue),
+      get: jest.fn((key: string, defaultValue?: string) => key === 'MEM0_ENABLED' ? 'true' : defaultValue),
     } as unknown as ConfigService);
   });
 
@@ -79,5 +79,37 @@ describe('MemoryService', () => {
     await expect(saving).resolves.toBeUndefined();
 
     expect(mem0Service.addMemory).toHaveBeenCalledTimes(4);
+  });
+
+  describe('when MEM0_ENABLED=false', () => {
+    let disabledService: MemoryService;
+
+    beforeEach(() => {
+      disabledService = new MemoryService(mem0Service, {
+        get: jest.fn((key: string, defaultValue?: string) => key === 'MEM0_ENABLED' ? 'false' : defaultValue),
+      } as unknown as ConfigService);
+    });
+
+    it('getRelevantMemories returns empty array without calling mem0', async () => {
+      const result = await disabledService.getRelevantMemories('问题', 'conv-1', 'user-1');
+      expect(result).toEqual([]);
+      expect(mem0Service.searchMemories).not.toHaveBeenCalled();
+      expect(mem0Service.searchConversationMemories).not.toHaveBeenCalled();
+    });
+
+    it('saveUserMemory skips without calling mem0', async () => {
+      await disabledService.saveUserMemory('user-1', 'conv-1', [{ role: 'user', content: '内容' }]);
+      expect(mem0Service.addMemory).not.toHaveBeenCalled();
+    });
+
+    it('saveConversationMemory skips without calling mem0', async () => {
+      await disabledService.saveConversationMemory('conv-1', 'user-1', [{ role: 'user', content: '内容' }]);
+      expect(mem0Service.addMemory).not.toHaveBeenCalled();
+    });
+
+    it('deleteConversationMemory skips without calling mem0', async () => {
+      await disabledService.deleteConversationMemory('conv-1');
+      expect(mem0Service.deleteConversationMemories).not.toHaveBeenCalled();
+    });
   });
 });

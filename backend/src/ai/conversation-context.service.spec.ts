@@ -50,7 +50,7 @@ describe('ConversationContextService', () => {
 
     const result = await service.prepare('conv-1', 'system');
 
-    expect(aiService.generateConversationSummary).toHaveBeenCalledWith(null, expect.any(Array), []);
+    expect(aiService.generateConversationSummary).toHaveBeenCalledWith(null, expect.any(Array), undefined);
     expect(conversationService.updateSummary).toHaveBeenCalledWith('conv-1', 0, '压缩后的摘要', 'msg-4');
     expect(result.summarized).toBe(true);
     expect(result.messages).toHaveLength(9);

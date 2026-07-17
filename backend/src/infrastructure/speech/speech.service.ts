@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as tencentcloud from 'tencentcloud-sdk-nodejs';
 import { LoggerService, LogServiceCall } from '../../common/logger';
+import { LangfuseService } from '../langfuse/langfuse.service';
 
 const AsrClient = tencentcloud.asr.v20190614.Client;
 const TtsClient = tencentcloud.tts.v20190823.Client;
@@ -30,7 +31,10 @@ export class SpeechService {
   private asrClient: AsrClientType;
   private ttsClient: TtsClientType;
 
-  constructor(private configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly langfuseService: LangfuseService,
+  ) {
     const secretId = this.configService.get<string>('TENCENT_SECRET_ID');
     const secretKey = this.configService.get<string>('TENCENT_SECRET_KEY');
     const region = this.configService.get<string>('TENCENT_REGION', 'ap-beijing');
@@ -55,17 +59,25 @@ export class SpeechService {
 
   @LogServiceCall()
   async speechToText(audioBuffer: Buffer, format: string = 'wav'): Promise<string> {
-    const base64Audio = audioBuffer.toString('base64');
-
-    const params = {
-      EngSerViceType: '16k_zh',
-      SourceType: 1,
-      VoiceFormat: format,
-      Data: base64Audio,
-    };
-
-    const result = await this.asrClient.SentenceRecognition(params);
-    return result.Result || '';
+    return this.langfuseService.observeGeneration(
+      'speech.asr',
+      {
+        attributes: {
+          input: { format, audioBytes: audioBuffer.length },
+          model: 'tencent-asr-16k_zh',
+          modelParameters: { sourceType: 1 },
+        },
+      },
+      async () => {
+        const result = await this.asrClient.SentenceRecognition({
+          EngSerViceType: '16k_zh',
+          SourceType: 1,
+          VoiceFormat: format,
+          Data: audioBuffer.toString('base64'),
+        });
+        return result.Result || '';
+      },
+    );
   }
 
   @LogServiceCall()
@@ -83,8 +95,25 @@ export class SpeechService {
     const ttsClient = this.ttsClient as unknown as {
       TextToSpeech: (params: TextToSpeechParams) => Promise<TextToSpeechResult>;
     };
-    const result = await ttsClient.TextToSpeech(params);
-    return Buffer.from(result.Audio || '', 'base64');
+    return this.langfuseService.observeGeneration(
+      'speech.tts',
+      {
+        attributes: {
+          input: text,
+          model: `tencent-tts-${params.VoiceType}`,
+          modelParameters: {
+            speed: params.Speed,
+            volume: params.Volume,
+            sampleRate: params.SampleRate,
+          },
+        },
+        summarizeOutput: (audio) => ({ audioBytes: audio.length, codec: params.Codec }),
+      },
+      async () => {
+        const result = await ttsClient.TextToSpeech(params);
+        return Buffer.from(result.Audio || '', 'base64');
+      },
+    );
   }
 
   @LogServiceCall()
@@ -92,23 +121,30 @@ export class SpeechService {
     audioBuffer: Buffer,
     format: string = 'wav',
   ): Promise<{ result: string; startMs: number; endMs: number }[]> {
-    const base64Audio = audioBuffer.toString('base64');
-
-    const params = {
-      EngSerViceType: '16k_zh',
-      SourceType: 1,
-      VoiceFormat: format,
-      Data: base64Audio,
-      WordInfo: 1,
-    };
-
-    const result = await this.asrClient.SentenceRecognition(params);
-    const sentences = result.Result?.split('\n').filter(Boolean) || [];
-
-    return sentences.map((sentence, index) => ({
-      result: sentence,
-      startMs: index * 3000,
-      endMs: (index + 1) * 3000,
-    }));
+    return this.langfuseService.observeGeneration(
+      'speech.asr.batch',
+      {
+        attributes: {
+          input: { format, audioBytes: audioBuffer.length },
+          model: 'tencent-asr-16k_zh',
+          modelParameters: { sourceType: 1, wordInfo: 1 },
+        },
+      },
+      async () => {
+        const result = await this.asrClient.SentenceRecognition({
+          EngSerViceType: '16k_zh',
+          SourceType: 1,
+          VoiceFormat: format,
+          Data: audioBuffer.toString('base64'),
+          WordInfo: 1,
+        });
+        const sentences = result.Result?.split('\n').filter(Boolean) || [];
+        return sentences.map((sentence, index) => ({
+          result: sentence,
+          startMs: index * 3000,
+          endMs: (index + 1) * 3000,
+        }));
+      },
+    );
   }
 }

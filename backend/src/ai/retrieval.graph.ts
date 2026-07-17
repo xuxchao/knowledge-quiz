@@ -5,6 +5,7 @@ import { LoggerService, LogServiceCall } from '../common/logger';
 import { RetrievedChunk, RetrievalService, VectorSearchHit } from './retrieval.service';
 import { GraphEvidence, NovelQueryPlan } from '../infrastructure/neo4j/novel-graph.types';
 import { RetrievalSnapshotService } from './retrieval-snapshot.service';
+import type { ChatTraceContext } from '../infrastructure/langfuse/langfuse.service';
 
 export interface HybridRetrievalResult {
   chunks: RetrievedChunk[];
@@ -13,11 +14,13 @@ export interface HybridRetrievalResult {
 
 export interface RetrievalDebugContext {
   conversationId?: string;
+  userId?: string;
 }
 
 const RetrievalState = Annotation.Root({
   query: Annotation<string>(),
   documentIds: Annotation<string[] | undefined>(),
+  traceContext: Annotation<ChatTraceContext | undefined>(),
   normalizedQuery: Annotation<string>(),
   queryPlan: Annotation<NovelQueryPlan>(),
   embedding: Annotation<number[]>(),
@@ -51,7 +54,14 @@ export class RetrievalGraph {
     const startedAt = new Date();
     const graph = this.build().compile();
     const result = await graph.invoke(
-      { query, documentIds },
+      {
+        query,
+        documentIds,
+        traceContext:
+          debugContext?.conversationId && debugContext.userId
+            ? { conversationId: debugContext.conversationId, userId: debugContext.userId }
+            : undefined,
+      },
       { runName: 'rag.retrieval', tags: ['rag', 'retrieval', 'langgraph'] },
     );
     await this.retrievalSnapshotService.write({
@@ -79,17 +89,21 @@ export class RetrievalGraph {
     return new StateGraph(RetrievalState)
       .addNode('normalizeQuery', (state) => ({ normalizedQuery: this.retrievalService.normalizeQuery(state.query) }))
       .addNode('analyzeQuery', async (state) => ({
-        queryPlan: await this.retrievalService.analyzeNovelQuery(state.normalizedQuery),
+        queryPlan: await this.retrievalService.analyzeNovelQuery(state.normalizedQuery, state.traceContext),
       }))
       .addNode('embedQuery', async (state) => ({
-        embedding: await this.retrievalService.embedQuery(state.normalizedQuery),
+        embedding: await this.retrievalService.embedQuery(state.normalizedQuery, state.traceContext),
       }))
       .addNode('vectorSearch', (state) => this.vectorSearch(state))
       .addNode('keywordSearch', (state) => this.keywordSearch(state))
       .addNode('graphSearch', (state) => this.graphSearch(state))
       .addNode('fuse', (state) => this.fuse(state))
       .addNode('rerank', async (state) => ({
-        reranked: await this.retrievalService.rerank(state.normalizedQuery, state.fused.slice(0, 30)),
+        reranked: await this.retrievalService.rerank(
+          state.normalizedQuery,
+          state.fused.slice(0, 30),
+          state.traceContext,
+        ),
       }))
       .addNode('selectAndExpand', (state) => this.selectAndExpand(state))
       .addEdge(START, 'normalizeQuery')

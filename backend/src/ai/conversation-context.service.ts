@@ -1,10 +1,10 @@
 import { Injectable, PayloadTooLargeException, ServiceUnavailableException } from '@nestjs/common';
-import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import { ConversationService } from '../conversations/conversation.service';
 import { Message, MessageRole } from '../entities/message.entity';
 import { LoggerService, LogServiceCall } from '../common/logger';
 import { AiService, ConversationPromptMessage } from './ai.service';
 import { TokenBudgetService } from './token-budget.service';
+import type { ChatTraceContext } from '../infrastructure/langfuse/langfuse.service';
 
 export interface PreparedConversationContext {
   messages: ConversationPromptMessage[];
@@ -35,7 +35,7 @@ export class ConversationContextService {
   async prepare(
     conversationId: string,
     systemPrompt: string,
-    callbacks: BaseCallbackHandler[] = [],
+    traceContext?: ChatTraceContext,
     retry = 0,
   ): Promise<PreparedConversationContext> {
     const snapshot = await this.conversationService.getContextSnapshot(conversationId);
@@ -77,7 +77,7 @@ export class ConversationContextService {
       summary = await this.aiService.generateConversationSummary(
         snapshot.conversation.summary,
         this.toPromptMessages(messagesToSummarize),
-        callbacks,
+        traceContext,
       );
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -95,7 +95,7 @@ export class ConversationContextService {
     if (!updated) {
       if (retry >= 1) throw new ServiceUnavailableException('会话摘要并发更新失败');
       this.logger.warn(`会话摘要发生并发冲突，重新计算 - 会话ID: ${conversationId}`);
-      return this.prepare(conversationId, systemPrompt, callbacks, retry + 1);
+      return this.prepare(conversationId, systemPrompt, traceContext, retry + 1);
     }
 
     const compactedMessages = this.buildPromptMessages(summary, remainingMessages);

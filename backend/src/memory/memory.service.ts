@@ -16,6 +16,7 @@ type MemoryKind = '用户记忆' | '会话记忆';
 export class MemoryService {
   private readonly logger = new LoggerService(MemoryService.name);
   private readonly retryDelays = [200, 500, 1000];
+  private readonly enabled: boolean;
   private readonly userTopK: number;
   private readonly conversationTopK: number;
   private readonly perScopeTokenBudget: number;
@@ -24,6 +25,7 @@ export class MemoryService {
     private readonly mem0Service: Mem0Service,
     configService: ConfigService,
   ) {
+    this.enabled = configService.get<string>('MEM0_ENABLED', 'false') === 'true';
     this.userTopK = this.positiveNumber(configService.get<string>('MEM0_USER_MEMORY_TOP_K'), 10);
     this.conversationTopK = this.positiveNumber(configService.get<string>('MEM0_CONVERSATION_MEMORY_TOP_K'), 10);
     this.perScopeTokenBudget = this.positiveNumber(configService.get<string>('MEM0_MEMORY_SCOPE_TOKEN_BUDGET'), 2000);
@@ -31,6 +33,7 @@ export class MemoryService {
 
   @LogServiceCall()
   async getRelevantMemories(query: string, conversationId: string, userId: string): Promise<MemoryItem[]> {
+    if (!this.enabled) return [];
     const [userRecords, conversationRecords] = await Promise.all([
       this.mem0Service.searchMemories(query, userId, this.userTopK),
       this.mem0Service.searchConversationMemories(query, conversationId, this.conversationTopK),
@@ -47,6 +50,7 @@ export class MemoryService {
 
   @LogServiceCall()
   async saveUserMemory(userId: string, conversationId: string, messages: Mem0Message[]): Promise<void> {
+    if (!this.enabled) return;
     await this.retryAndIgnore('用户记忆', conversationId, () =>
       this.mem0Service.addMemory(
         { userId },
@@ -59,6 +63,7 @@ export class MemoryService {
 
   @LogServiceCall()
   async saveConversationMemory(conversationId: string, userId: string, messages: Mem0Message[]): Promise<void> {
+    if (!this.enabled) return;
     await this.retryAndIgnore('会话记忆', conversationId, () =>
       this.mem0Service.addMemory(
         { runId: conversationId },
@@ -71,6 +76,7 @@ export class MemoryService {
 
   @LogServiceCall()
   async deleteConversationMemory(conversationId: string): Promise<void> {
+    if (!this.enabled) return;
     await this.retryAndIgnore('会话记忆', conversationId, () =>
       this.mem0Service.deleteConversationMemories(conversationId),
     );

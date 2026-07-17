@@ -3,7 +3,10 @@ import { RetrievalService } from './retrieval.service';
 describe('RetrievalService', () => {
   it('should fuse vector and keyword hits and fall back to RRF when reranking is not configured', async () => {
     const repository = { find: jest.fn().mockResolvedValue([]) };
-    const aiService = { generateEmbedding: jest.fn().mockResolvedValue([0.1, 0.2]) };
+    const aiService = {
+      generateEmbedding: jest.fn().mockResolvedValue([0.1, 0.2]),
+      rerank: jest.fn().mockResolvedValue(undefined),
+    };
     const postgresVectorService = {
       search: jest.fn().mockResolvedValue([
         {
@@ -48,7 +51,7 @@ describe('RetrievalService', () => {
 
     const result = await service.retrieve('  测试   查询  ');
 
-    expect(aiService.generateEmbedding).toHaveBeenCalledWith('测试 查询');
+    expect(aiService.generateEmbedding).toHaveBeenCalledWith('测试 查询', undefined);
     expect(postgresVectorService.search).toHaveBeenCalledWith([0.1, 0.2], 30, undefined);
     expect(elasticsearchService.search).toHaveBeenCalledWith('测试 查询', 30, undefined);
     expect(result.map((item) => item.chunkId)).toEqual(expect.arrayContaining(['chunk-1', 'chunk-2']));
@@ -57,7 +60,10 @@ describe('RetrievalService', () => {
 
   it('should continue with keyword retrieval when vector search fails', async () => {
     const repository = { find: jest.fn().mockResolvedValue([]) };
-    const aiService = { generateEmbedding: jest.fn().mockResolvedValue([0.1]) };
+    const aiService = {
+      generateEmbedding: jest.fn().mockResolvedValue([0.1]),
+      rerank: jest.fn().mockResolvedValue(undefined),
+    };
     const postgresVectorService = { search: jest.fn().mockRejectedValue(new Error('postgres unavailable')) };
     const neo4jService = { searchGraph: jest.fn().mockResolvedValue([]) };
     const elasticsearchService = {

@@ -2,13 +2,19 @@ import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChatOpenAI, OpenAIEmbeddings } from '@langchain/openai';
 import type { AIMessageChunk, BaseMessage } from '@langchain/core/messages';
-import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import { JsonOutputParser } from '@langchain/core/output_parsers';
 import { LoggerService, LogServiceCall } from '../common/logger';
+import { LangfuseService } from '../infrastructure/langfuse/langfuse.service';
+import type { ChatTraceContext } from '../infrastructure/langfuse/langfuse.service';
 
 export interface ConversationPromptMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
+}
+
+export interface RerankScore {
+  index: number;
+  score: number;
 }
 
 @Injectable()
@@ -21,7 +27,10 @@ export class AiService implements OnModuleInit {
   private structuredJsonModel: ChatOpenAI;
   private structuredJsonMaxAttempts: number;
 
-  constructor(private configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly langfuseService: LangfuseService,
+  ) {}
 
   onModuleInit() {
     const apiKey = this.configService.get<string>('QWEN_API_KEY');
@@ -33,6 +42,7 @@ export class AiService implements OnModuleInit {
     if (!apiKey) {
       throw new Error('QWEN_API_KEY environment variable is not set');
     }
+    const callbacks = this.langfuseService.getLangChainCallbacks();
 
     this.chatModel = new ChatOpenAI({
       apiKey,
@@ -43,6 +53,7 @@ export class AiService implements OnModuleInit {
       temperature: 0.7,
       maxTokens: Number(this.configService.get<string>('AI_MAX_OUTPUT_TOKENS', '4096')),
       streaming: true,
+      callbacks,
     });
 
     this.embeddings = new OpenAIEmbeddings({
@@ -59,6 +70,7 @@ export class AiService implements OnModuleInit {
       model: this.configService.get<string>('QWEN_VISION_MODEL', 'qwen-vl-plus'),
       temperature: 0.1,
       maxTokens: 2048,
+      callbacks,
     });
 
     this.summaryModel = new ChatOpenAI({
@@ -67,6 +79,7 @@ export class AiService implements OnModuleInit {
       model: 'qwen-plus',
       temperature: 0.1,
       maxTokens: Number(this.configService.get<string>('AI_SUMMARY_MAX_TOKENS', '2048')),
+      callbacks,
     });
 
     this.structuredJsonModel = new ChatOpenAI({
@@ -77,6 +90,7 @@ export class AiService implements OnModuleInit {
       maxTokens: Number(this.configService.get<string>('NOVEL_GRAPH_MAX_OUTPUT_TOKENS', '4096')),
       timeout: Number(this.configService.get<string>('NOVEL_GRAPH_REQUEST_TIMEOUT_MS', '120000')),
       maxRetries: 0,
+      callbacks,
     });
     this.structuredJsonMaxAttempts = Math.max(
       1,
@@ -95,26 +109,52 @@ export class AiService implements OnModuleInit {
   }
 
   @LogServiceCall()
-  async generateEmbedding(text: string): Promise<number[]> {
-    return this.embeddings.embedQuery(text);
-  }
-
-  @LogServiceCall()
-  async generateEmbeddings(texts: string[]): Promise<number[][]> {
-    return this.embeddings.embedDocuments(texts);
-  }
-
-  @LogServiceCall()
-  async describeImage(dataUrl: string): Promise<string> {
-    const response = await this.visionModel.invoke([
+  async generateEmbedding(text: string, context?: ChatTraceContext): Promise<number[]> {
+    return this.langfuseService.observeEmbedding(
+      'embedding.query',
       {
-        role: 'user',
-        content: [
-          { type: 'text', text: '提取图片中的全部可读文字，并准确描述图表、对象和关键关系。不要猜测不可见内容。' },
-          { type: 'image_url', image_url: { url: dataUrl } },
-        ],
+        attributes: { input: text, model: 'text-embedding-v2', metadata: { textCount: 1 } },
+        context,
+        summarizeOutput: (embedding) => ({ count: 1, dimensions: embedding.length }),
       },
-    ]);
+      () => this.embeddings.embedQuery(text),
+    );
+  }
+
+  @LogServiceCall()
+  async generateEmbeddings(texts: string[], context?: ChatTraceContext): Promise<number[][]> {
+    return this.langfuseService.observeEmbedding(
+      'embedding.documents',
+      {
+        attributes: { input: texts, model: 'text-embedding-v2', metadata: { textCount: texts.length } },
+        context,
+        summarizeOutput: (embeddings) => ({
+          count: embeddings.length,
+          dimensions: embeddings[0]?.length ?? 0,
+        }),
+      },
+      () => this.embeddings.embedDocuments(texts),
+    );
+  }
+
+  @LogServiceCall()
+  async describeImage(dataUrl: string, context?: ChatTraceContext): Promise<string> {
+    const response = await this.visionModel.invoke(
+      [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: '提取图片中的全部可读文字，并准确描述图表、对象和关键关系。不要猜测不可见内容。' },
+            { type: 'image_url', image_url: { url: dataUrl } },
+          ],
+        },
+      ],
+      {
+        runName: 'vision.describe-image',
+        tags: ['vision'],
+        metadata: this.langfuseService.buildLangChainMetadata(context),
+      },
+    );
     return this.extractMessageContent(response).trim();
   }
 
@@ -122,16 +162,16 @@ export class AiService implements OnModuleInit {
   async streamConversation(
     messages: ConversationPromptMessage[],
     systemPrompt: string,
-    callbacks: BaseCallbackHandler[] = [],
+    context?: ChatTraceContext,
   ): Promise<AsyncIterable<AIMessageChunk>> {
     const langChainMessages = messages.map((message) => {
       const role = message.role === 'user' ? 'human' : message.role === 'assistant' ? 'ai' : 'system';
       return [role, message.content] as ['human' | 'ai' | 'system', string];
     });
     return this.chatModel.stream([['system', systemPrompt], ...langChainMessages], {
-      callbacks,
       runName: 'conversation.chat',
       tags: ['chat'],
+      metadata: this.langfuseService.buildLangChainMetadata(context),
     });
   }
 
@@ -139,7 +179,7 @@ export class AiService implements OnModuleInit {
   async generateConversationSummary(
     previousSummary: string | null,
     messages: ConversationPromptMessage[],
-    callbacks: BaseCallbackHandler[] = [],
+    context?: ChatTraceContext,
   ): Promise<string> {
     const response = await this.summaryModel.invoke(
       [
@@ -156,9 +196,9 @@ export class AiService implements OnModuleInit {
         },
       ],
       {
-        callbacks,
         runName: 'conversation.summary',
         tags: ['chat', 'summary'],
+        metadata: this.langfuseService.buildLangChainMetadata(context),
       },
     );
     const summary = this.extractMessageContent(response).trim();
@@ -167,7 +207,7 @@ export class AiService implements OnModuleInit {
   }
 
   @LogServiceCall()
-  async generateConversationTitle(firstMessage: string, callbacks: BaseCallbackHandler[] = []): Promise<string> {
+  async generateConversationTitle(firstMessage: string, context?: ChatTraceContext): Promise<string> {
     const fallbackTitle = this.buildFallbackTitle(firstMessage);
 
     try {
@@ -184,9 +224,9 @@ export class AiService implements OnModuleInit {
           },
         ],
         {
-          callbacks,
           runName: 'conversation.title',
           tags: ['chat', 'title'],
+          metadata: this.langfuseService.buildLangChainMetadata(context),
         },
       );
 
@@ -203,7 +243,7 @@ export class AiService implements OnModuleInit {
   }
 
   @LogServiceCall()
-  async classifyRagIntent(message: string, callbacks: BaseCallbackHandler[] = []): Promise<'knowledge' | 'direct'> {
+  async classifyRagIntent(message: string, context?: ChatTraceContext): Promise<'knowledge' | 'direct'> {
     const response = await this.summaryModel.invoke(
       [
         {
@@ -213,7 +253,11 @@ export class AiService implements OnModuleInit {
         },
         { role: 'user', content: message },
       ],
-      { callbacks, runName: 'rag.intent', tags: ['rag', 'agentic', 'intent'] },
+      {
+        runName: 'rag.intent',
+        tags: ['rag', 'agentic', 'intent'],
+        metadata: this.langfuseService.buildLangChainMetadata(context),
+      },
     );
     return this.extractMessageContent(response).trim().toLowerCase().includes('knowledge') ? 'knowledge' : 'direct';
   }
@@ -222,7 +266,7 @@ export class AiService implements OnModuleInit {
   async rewriteRetrievalQuery(
     message: string,
     conversationMessages: ConversationPromptMessage[],
-    callbacks: BaseCallbackHandler[] = [],
+    context?: ChatTraceContext,
   ): Promise<string> {
     const response = await this.summaryModel.invoke(
       [
@@ -239,13 +283,22 @@ export class AiService implements OnModuleInit {
             .join('\n')}\n\n当前问题：${message}`,
         },
       ],
-      { callbacks, runName: 'rag.query-rewrite', tags: ['rag', 'agentic', 'rewrite'] },
+      {
+        runName: 'rag.query-rewrite',
+        tags: ['rag', 'agentic', 'rewrite'],
+        metadata: this.langfuseService.buildLangChainMetadata(context),
+      },
     );
     return this.extractMessageContent(response).replace(/\s+/g, ' ').trim() || message;
   }
 
   @LogServiceCall()
-  async evaluateGroundedness(question: string, answer: string, evidence: string[]): Promise<number> {
+  async evaluateGroundedness(
+    question: string,
+    answer: string,
+    evidence: string[],
+    context?: ChatTraceContext,
+  ): Promise<number> {
     if (!evidence.length) return 0;
     const response = await this.summaryModel.invoke(
       [
@@ -259,7 +312,11 @@ export class AiService implements OnModuleInit {
           content: `问题：${question}\n\n回答：${answer}\n\n证据：\n${evidence.join('\n\n')}`,
         },
       ],
-      { runName: 'rag.groundedness-evaluator', tags: ['rag', 'agentic', 'evaluation'] },
+      {
+        runName: 'rag.groundedness-evaluator',
+        tags: ['rag', 'agentic', 'evaluation'],
+        metadata: this.langfuseService.buildLangChainMetadata(context),
+      },
     );
     const match = this.extractMessageContent(response).match(/(?:0(?:\.\d+)?|1(?:\.0+)?)/);
     if (!match) throw new Error('Groundedness评分模型返回格式无效');
@@ -272,6 +329,7 @@ export class AiService implements OnModuleInit {
     userPrompt: string,
     runName: string,
     signal?: AbortSignal,
+    context?: ChatTraceContext,
   ): Promise<T> {
     const parser = new JsonOutputParser<Record<string, unknown>>();
     let lastError: unknown;
@@ -292,6 +350,7 @@ export class AiService implements OnModuleInit {
             tags: ['novel-graph', 'structured-output'],
             response_format: { type: 'json_object' },
             signal,
+            metadata: this.langfuseService.buildLangChainMetadata(context),
           },
         );
         const parsed = await parser.parse(this.extractMessageContent(response));
@@ -311,6 +370,48 @@ export class AiService implements OnModuleInit {
       lastError instanceof Error ? lastError.stack : undefined,
     );
     throw new Error(`模型结构化输出失败: ${message}`);
+  }
+
+  @LogServiceCall()
+  async rerank(query: string, documents: string[], context?: ChatTraceContext): Promise<RerankScore[] | undefined> {
+    const apiKey = this.configService.get<string>('QWEN_API_KEY');
+    if (!apiKey) return undefined;
+    const endpoint = this.configService.get<string>(
+      'QWEN_RERANK_URL',
+      'https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank',
+    );
+    const model = this.configService.get<string>('QWEN_RERANK_MODEL', 'gte-rerank-v2');
+    return this.langfuseService.observeGeneration(
+      'rag.rerank',
+      {
+        attributes: {
+          input: { query, documents },
+          model,
+          modelParameters: { topN: documents.length },
+        },
+        context,
+        summarizeOutput: (scores) => scores,
+      },
+      async () => {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model,
+            input: { query, documents },
+            parameters: { return_documents: false, top_n: documents.length },
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload = (await response.json()) as {
+          output?: { results?: Array<{ index: number; relevance_score: number }> };
+        };
+        const results = payload.output?.results ?? [];
+        if (!results.length) throw new Error('重排服务返回空结果');
+        return results.map((result) => ({ index: result.index, score: result.relevance_score }));
+      },
+    );
   }
 
   private extractMessageContent(message: BaseMessage): string {

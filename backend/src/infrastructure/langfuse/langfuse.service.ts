@@ -3,12 +3,26 @@ import { ConfigService } from '@nestjs/config';
 import { CallbackHandler } from '@langfuse/langchain';
 import { LangfuseClient } from '@langfuse/client';
 import { LangfuseSpanProcessor } from '@langfuse/otel';
+import { propagateAttributes, startActiveObservation, type LangfuseGenerationAttributes } from '@langfuse/tracing';
 import { NodeSDK } from '@opentelemetry/sdk-node';
+import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import { LoggerService, LogServiceCall } from '../../common/logger';
 
 export interface ChatTraceContext {
   conversationId: string;
   userId: string;
+}
+
+export interface LangfuseObservationOptions<T> {
+  attributes: LangfuseGenerationAttributes;
+  context?: ChatTraceContext;
+  summarizeOutput?: (result: T) => unknown;
+}
+
+export interface LangfuseEmbeddingOptions<T> {
+  attributes: LangfuseGenerationAttributes;
+  context?: ChatTraceContext;
+  summarizeOutput: (result: T) => unknown;
 }
 
 @Injectable()
@@ -17,6 +31,7 @@ export class LangfuseService implements OnModuleInit, OnModuleDestroy {
   private sdk?: NodeSDK;
   private spanProcessor?: LangfuseSpanProcessor;
   private client?: LangfuseClient;
+  private callbackHandler?: CallbackHandler;
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -37,10 +52,12 @@ export class LangfuseService implements OnModuleInit, OnModuleDestroy {
       baseUrl,
       exportMode: 'batched',
       mediaUploadEnabled: false,
+      mask: ({ data }) => this.maskMediaPayloads(data),
     });
     this.sdk = new NodeSDK({ spanProcessors: [this.spanProcessor] });
     this.sdk.start();
     this.client = new LangfuseClient({ publicKey, secretKey, baseUrl });
+    this.callbackHandler = new CallbackHandler({ tags: ['langchain'] });
     this.logger.info('Langfuse LangChain自动上报初始化完成');
   }
 
@@ -53,17 +70,36 @@ export class LangfuseService implements OnModuleInit, OnModuleDestroy {
   }
 
   @LogServiceCall()
-  createChatHandler(context: ChatTraceContext): CallbackHandler | undefined {
-    if (!this.sdk) return undefined;
+  getLangChainCallbacks(): BaseCallbackHandler[] {
+    return this.callbackHandler ? [this.callbackHandler] : [];
+  }
 
-    return new CallbackHandler({
-      sessionId: context.conversationId,
-      userId: context.userId,
-      tags: ['chat', 'langchain'],
-      traceMetadata: {
-        conversationId: context.conversationId,
-      },
-    });
+  @LogServiceCall()
+  buildLangChainMetadata(context?: ChatTraceContext): Record<string, unknown> {
+    if (!context) return {};
+    return {
+      langfuseSessionId: context.conversationId,
+      langfuseUserId: context.userId,
+      conversationId: context.conversationId,
+    };
+  }
+
+  @LogServiceCall()
+  observeGeneration<T>(name: string, options: LangfuseObservationOptions<T>, operation: () => Promise<T>): Promise<T> {
+    if (!this.sdk) return operation();
+    return this.observeSafely(
+      name,
+      'generation',
+      options,
+      operation,
+      (result) => options.summarizeOutput?.(result) ?? result,
+    );
+  }
+
+  @LogServiceCall()
+  observeEmbedding<T>(name: string, options: LangfuseEmbeddingOptions<T>, operation: () => Promise<T>): Promise<T> {
+    if (!this.sdk) return operation();
+    return this.observeSafely(name, 'embedding', options, operation, options.summarizeOutput);
   }
 
   @LogServiceCall()
@@ -82,6 +118,7 @@ export class LangfuseService implements OnModuleInit, OnModuleDestroy {
       this.sdk = undefined;
       this.spanProcessor = undefined;
       this.client = undefined;
+      this.callbackHandler = undefined;
     } catch (error: unknown) {
       this.logLangfuseError('关闭Langfuse客户端失败', error);
     }
@@ -114,5 +151,75 @@ export class LangfuseService implements OnModuleInit, OnModuleDestroy {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const stackTrace = error instanceof Error ? error.stack : undefined;
     this.logger.error(`${message}，错误: ${errorMessage}`, stackTrace);
+  }
+
+  private withTraceContext<T>(context: ChatTraceContext | undefined, operation: () => T): T {
+    if (!context) return operation();
+    return propagateAttributes(
+      {
+        sessionId: context.conversationId,
+        userId: context.userId,
+        metadata: { conversationId: context.conversationId },
+      },
+      operation,
+    );
+  }
+
+  private async observeSafely<T>(
+    name: string,
+    asType: 'generation' | 'embedding',
+    options: LangfuseObservationOptions<T>,
+    operation: () => Promise<T>,
+    summarizeOutput: (result: T) => unknown,
+  ): Promise<T> {
+    let operationStarted = false;
+    let operationCompleted = false;
+    let operationFailed = false;
+    let result: T;
+    let operationError: unknown;
+
+    try {
+      await this.withTraceContext(options.context, () =>
+        startActiveObservation(
+          name,
+          async (observation) => {
+            observation.update(options.attributes);
+            operationStarted = true;
+            try {
+              result = await operation();
+              operationCompleted = true;
+            } catch (error: unknown) {
+              operationFailed = true;
+              operationError = error;
+              throw error;
+            }
+            observation.update({ output: summarizeOutput(result) });
+            return result;
+          },
+          { asType },
+        ),
+      );
+    } catch (error: unknown) {
+      if (operationFailed) throw operationError;
+      this.logLangfuseError(`Langfuse观测失败，业务调用继续执行 - ${name}`, error);
+      if (!operationStarted) return operation();
+    }
+
+    if (operationCompleted) return result!;
+    this.logger.warn(`Langfuse观测未执行业务回调，业务调用继续执行 - ${name}`);
+    return operation();
+  }
+
+  private maskMediaPayloads(data: unknown): unknown {
+    if (typeof data === 'string') {
+      return data.replace(/data:([^;,]+);base64,([A-Za-z0-9+/=]+)/g, (_match, mimeType: string, payload: string) => {
+        return `[媒体内容已脱敏 mime=${mimeType} base64Chars=${payload.length}]`;
+      });
+    }
+    if (Array.isArray(data)) return data.map((item) => this.maskMediaPayloads(item));
+    if (data && typeof data === 'object') {
+      return Object.fromEntries(Object.entries(data).map(([key, value]) => [key, this.maskMediaPayloads(value)]));
+    }
+    return data;
   }
 }

@@ -9,6 +9,7 @@ import { Neo4jService } from '../infrastructure/neo4j/neo4j.service';
 import type { GraphEvidence, NovelQueryPlan } from '../infrastructure/neo4j/novel-graph.types';
 import { ElasticsearchService, SearchChunk } from '../infrastructure/elasticsearch/elasticsearch.service';
 import { LoggerService, LogServiceCall } from '../common/logger';
+import type { ChatTraceContext } from '../infrastructure/langfuse/langfuse.service';
 
 export interface RetrievedChunk extends SearchChunk {
   vectorScore?: number;
@@ -55,12 +56,14 @@ export class RetrievalService {
   }
 
   @LogServiceCall()
-  async analyzeNovelQuery(query: string): Promise<NovelQueryPlan> {
+  async analyzeNovelQuery(query: string, context?: ChatTraceContext): Promise<NovelQueryPlan> {
     try {
       const raw = await this.aiService.generateStructuredJson<Partial<NovelQueryPlan>>(
         '判断小说问题需要文本检索、图谱检索还是混合检索。人物关系、章节顺序、首次出现、组织成员、事件参与或因果问题使用graph或hybrid；情节细节使用text。输出字段mode、entities、relationshipKinds、chapterOrdinal、novelTitle。',
         query,
         'rag.novel-query-plan',
+        undefined,
+        context,
       );
       const mode = ['text', 'graph', 'hybrid'].includes(String(raw.mode)) ? raw.mode! : 'text';
       const chapterOrdinal = Number(raw.chapterOrdinal);
@@ -136,8 +139,8 @@ export class RetrievalService {
   }
 
   @LogServiceCall()
-  embedQuery(query: string): Promise<number[]> {
-    return this.aiService.generateEmbedding(query);
+  embedQuery(query: string, context?: ChatTraceContext): Promise<number[]> {
+    return this.aiService.generateEmbedding(query, context);
   }
 
   @LogServiceCall()
@@ -191,35 +194,19 @@ export class RetrievalService {
   }
 
   @LogServiceCall()
-  async rerank(query: string, chunks: RetrievedChunk[]): Promise<RetrievedChunk[]> {
+  async rerank(query: string, chunks: RetrievedChunk[], context?: ChatTraceContext): Promise<RetrievedChunk[]> {
     if (chunks.length === 0) return [];
-    const apiKey = this.configService.get<string>('QWEN_API_KEY');
-    const endpoint = this.configService.get<string>(
-      'QWEN_RERANK_URL',
-      'https://dashscope.aliyuncs.com/api/v1/services/rerank/text-rerank/text-rerank',
-    );
-    if (!apiKey) return chunks;
     try {
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: this.configService.get<string>('QWEN_RERANK_MODEL', 'gte-rerank-v2'),
-          input: { query, documents: chunks.map((item) => item.content) },
-          parameters: { return_documents: false, top_n: chunks.length },
-        }),
-        signal: AbortSignal.timeout(10000),
-      });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      const payload = (await response.json()) as {
-        output?: { results?: Array<{ index: number; relevance_score: number }> };
-      };
-      const scored = payload.output?.results ?? [];
-      if (!scored.length) throw new Error('重排服务返回空结果');
+      const scored = await this.aiService.rerank(
+        query,
+        chunks.map((item) => item.content),
+        context,
+      );
+      if (!scored) return chunks;
       return scored.map((result) => ({
         ...chunks[result.index],
-        score: result.relevance_score,
-        rerankScore: result.relevance_score,
+        score: result.score,
+        rerankScore: result.score,
       }));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : String(error);

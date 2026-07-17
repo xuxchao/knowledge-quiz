@@ -43,6 +43,7 @@
     "@langfuse/client": "5.9.1",
     "@langfuse/langchain": "5.9.1",
     "@langfuse/otel": "5.9.1",
+    "@langfuse/tracing": "5.9.1",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.4",
     "@nestjs/core": "^11.0.1",

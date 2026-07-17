@@ -72,6 +72,8 @@
     "sharp": "^0.35.3",
     "tencentcloud-sdk-nodejs": "^4.1.261",
     "typeorm": "^1.0.0",
+    "winston": "^3.19.0",
+    "winston-daily-rotate-file": "^5.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

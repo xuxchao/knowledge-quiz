@@ -5,25 +5,54 @@ export interface ModuleConfig {
   level: LogLevel;
 }
 
+export interface FileLoggerConfig {
+  enabled: boolean;
+  directory: string;
+  filename: string;
+  errorFilename: string;
+  datePattern: string;
+  maxSize: string;
+  maxFiles: string;
+}
+
 export interface LoggerConfig {
   globalLevel: LogLevel;
   globalEnabled: boolean;
   modules: Record<string, ModuleConfig>;
   outputFormat: 'console' | 'json';
+  file: FileLoggerConfig;
 }
+
+export type LoggerConfigOptions = Omit<Partial<LoggerConfig>, 'file'> & {
+  file?: Partial<FileLoggerConfig>;
+};
 
 export const DEFAULT_CONFIG: LoggerConfig = {
   globalLevel: 'INFO',
   globalEnabled: true,
   modules: {},
   outputFormat: 'console',
+  file: {
+    enabled: false,
+    directory: 'logs',
+    filename: 'backend-%DATE%.log',
+    errorFilename: 'backend-error-%DATE%.log',
+    datePattern: 'YYYY-MM-DD',
+    maxSize: '20m',
+    maxFiles: '14d',
+  },
 };
 
 export class LoggerConfigRegistry {
   private config: LoggerConfig;
 
-  constructor(config: Partial<LoggerConfig> = {}) {
-    this.config = { ...DEFAULT_CONFIG, ...config };
+  constructor(config: LoggerConfigOptions = {}) {
+    this.config = {
+      ...DEFAULT_CONFIG,
+      ...config,
+      modules: { ...DEFAULT_CONFIG.modules, ...config.modules },
+      file: { ...DEFAULT_CONFIG.file, ...config.file },
+    };
   }
 
   getModuleConfig(moduleName: string): ModuleConfig {
@@ -81,12 +110,20 @@ export class LoggerConfigRegistry {
     return this.config.outputFormat;
   }
 
+  getFileConfig(): FileLoggerConfig {
+    return { ...this.config.file };
+  }
+
   setOutputFormat(format: 'console' | 'json'): void {
     this.config.outputFormat = format;
   }
 
   getConfig(): LoggerConfig {
-    return { ...this.config };
+    return {
+      ...this.config,
+      modules: { ...this.config.modules },
+      file: { ...this.config.file },
+    };
   }
 }
 

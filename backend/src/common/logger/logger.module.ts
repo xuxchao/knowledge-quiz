@@ -1,9 +1,9 @@
 import { Module, Global } from '@nestjs/common';
 import { LoggerService } from './logger.service';
-import { LoggerConfigRegistry, LoggerConfig } from './logger.config';
+import { LoggerConfigRegistry, LoggerConfigOptions } from './logger.config';
 
 export interface LoggerModuleOptions {
-  config?: Partial<LoggerConfig>;
+  config?: LoggerConfigOptions;
 }
 
 @Global()

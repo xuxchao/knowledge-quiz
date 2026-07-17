@@ -1,6 +1,8 @@
-import { Injectable, LoggerService as NestLoggerService } from '@nestjs/common';
+import { Injectable, LoggerService as NestLoggerService, OnApplicationShutdown } from '@nestjs/common';
+import { createLogger, format as winstonFormat, Logger as WinstonLogger } from 'winston';
+import DailyRotateFile from 'winston-daily-rotate-file';
 import { LogLevel, LogEntry, formatJson, formatConsole, createLogEntry } from './formatters';
-import { LoggerConfigRegistry, shouldLog, LoggerConfig, ModuleConfig } from './logger.config';
+import { LoggerConfigRegistry, shouldLog, LoggerConfig, ModuleConfig, FileLoggerConfig } from './logger.config';
 
 const FRAMEWORK_CONTEXTS = [
   'RoutesResolver',
@@ -12,8 +14,10 @@ const FRAMEWORK_CONTEXTS = [
 ];
 
 @Injectable()
-export class LoggerService implements NestLoggerService {
+export class LoggerService implements NestLoggerService, OnApplicationShutdown {
   private static globalConfigRegistry: LoggerConfigRegistry | null = null;
+  private static fileLogger: WinstonLogger | null = null;
+  private static fileLoggerConfigKey: string | null = null;
 
   private configRegistry: LoggerConfigRegistry;
   private moduleName: string;
@@ -24,6 +28,7 @@ export class LoggerService implements NestLoggerService {
   }
 
   static setGlobalConfigRegistry(registry: LoggerConfigRegistry): void {
+    LoggerService.closeFileLogger();
     LoggerService.globalConfigRegistry = registry;
   }
 
@@ -37,6 +42,10 @@ export class LoggerService implements NestLoggerService {
 
   getConfigRegistry(): LoggerConfigRegistry {
     return this.configRegistry;
+  }
+
+  onApplicationShutdown(): void {
+    LoggerService.closeFileLogger();
   }
 
   debug(message: string, context?: string): void {
@@ -103,6 +112,58 @@ export class LoggerService implements NestLoggerService {
         console.error(formatted);
         break;
     }
+
+    const fileLogger = LoggerService.getFileLogger(this.configRegistry.getFileConfig());
+    fileLogger?.log(entry.level.toLowerCase(), formatJson(entry));
+  }
+
+  private static getFileLogger(config: FileLoggerConfig): WinstonLogger | null {
+    if (!config.enabled) {
+      return null;
+    }
+
+    const configKey = JSON.stringify(config);
+    if (LoggerService.fileLogger && LoggerService.fileLoggerConfigKey === configKey) {
+      return LoggerService.fileLogger;
+    }
+
+    LoggerService.closeFileLogger();
+
+    const transportOptions = {
+      dirname: config.directory,
+      datePattern: config.datePattern,
+      maxSize: config.maxSize,
+      maxFiles: config.maxFiles,
+      zippedArchive: true,
+    };
+
+    LoggerService.fileLogger = createLogger({
+      level: 'debug',
+      format: winstonFormat.printf(({ message }) => String(message)),
+      transports: [
+        new DailyRotateFile({
+          ...transportOptions,
+          filename: config.filename,
+        }),
+        new DailyRotateFile({
+          ...transportOptions,
+          level: 'error',
+          filename: config.errorFilename,
+        }),
+      ],
+    });
+    LoggerService.fileLogger.on('error', (error: Error) => {
+      console.error(`文件日志写入失败: ${error.message}`);
+    });
+    LoggerService.fileLoggerConfigKey = configKey;
+
+    return LoggerService.fileLogger;
+  }
+
+  private static closeFileLogger(): void {
+    LoggerService.fileLogger?.close();
+    LoggerService.fileLogger = null;
+    LoggerService.fileLoggerConfigKey = null;
   }
 
   step<T>(stepName: string, fn: () => T): T {

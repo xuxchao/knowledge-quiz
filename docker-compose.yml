@@ -144,7 +144,10 @@ services:
       - knowledge-doc-network
 
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.15.3
+    build:
+      context: .
+      dockerfile: docker/elasticsearch/Dockerfile
+    image: knowledge-doc-es:ik-8.15.3
     container_name: knowledge-doc-es
     restart: always
     ports:

@@ -58,7 +58,7 @@ export class GraphRunService {
     return this.repository.findOne({ where: { graphName, aggregateId }, order: { createdAt: 'DESC' } });
   }
 
-  @LogServiceCall()
+  // @LogServiceCall()
   async claimNext(graphName: string, workerId: string): Promise<GraphRun | null> {
     return this.dataSource.transaction(async (manager) => {
       const [rows] = await manager.query<[GraphRun[], number]>(

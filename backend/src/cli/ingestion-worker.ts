@@ -3,6 +3,7 @@ import { AppModule } from '../app.module';
 import { DocumentIngestionWorker } from '../documents/document-ingestion.worker';
 
 process.env.INGESTION_WORKER_AUTOSTART = 'false';
+process.env.LOG_FILE_NAME = 'backend-worker-%DATE%.log';
 
 async function main(): Promise<void> {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: false });

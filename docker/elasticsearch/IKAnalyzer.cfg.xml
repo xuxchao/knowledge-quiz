@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">
+<properties>
+    <comment>IK Analyzer 扩展配置</comment>
+    <!-- 自定义词典：每行一个词，UTF-8 编码 -->
+    <entry key="ext_dict">custom.dic</entry>
+    <!-- 扩展停用词（可选，不填则用 IK 内置停用词） -->
+    <entry key="ext_stopwords"></entry>
+</properties>

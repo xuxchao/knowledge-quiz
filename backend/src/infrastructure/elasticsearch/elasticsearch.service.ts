@@ -33,8 +33,9 @@ export class ElasticsearchService implements OnModuleInit, OnModuleDestroy {
           properties: {
             chunkId: { type: 'keyword' },
             documentId: { type: 'keyword' },
-            documentName: { type: 'text' },
-            content: { type: 'text' },
+            documentName: { type: 'text', analyzer: 'ik_max_word', search_analyzer: 'ik_smart' },
+            content: { type: 'text', analyzer: 'ik_max_word', search_analyzer: 'ik_smart' },
+            headingPath: { type: 'text', analyzer: 'ik_max_word', search_analyzer: 'ik_smart' },
             chunkIndex: { type: 'integer' },
             status: { type: 'keyword' },
             pageNumber: { type: 'integer' },

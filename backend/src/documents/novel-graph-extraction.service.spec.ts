@@ -32,9 +32,9 @@ describe('NovelGraphExtractionService', () => {
         const chunkId = user.includes('[c1]') ? 'c1' : 'c2';
         return Promise.resolve({
           entities: [
-            { type: 'Character', name: '甲', evidenceChunkIds: [chunkId] },
-            { type: 'Character', name: '乙', evidenceChunkIds: [chunkId] },
-            { type: 'Location', name: '长安', evidenceChunkIds: [chunkId] },
+            { type: '角色', name: '甲', evidenceChunkIds: [chunkId] },
+            { type: '角色', name: '乙', evidenceChunkIds: [chunkId] },
+            { type: '地点', name: '长安', evidenceChunkIds: [chunkId] },
           ],
           relations:
             chunkId === 'c2'
@@ -42,8 +42,8 @@ describe('NovelGraphExtractionService', () => {
                   {
                     source: '甲',
                     target: '乙',
-                    type: 'RELATED_TO',
-                    kind: 'ALLY',
+                    type: '相关',
+                    kind: '盟友',
                     description: '二人结盟',
                     confidence: 0.95,
                     evidenceChunkIds: ['c2'],
@@ -51,8 +51,8 @@ describe('NovelGraphExtractionService', () => {
                   {
                     source: '甲',
                     target: '乙',
-                    type: 'RELATED_TO',
-                    kind: 'ENEMY',
+                    type: '相关',
+                    kind: '敌对',
                     confidence: 0.2,
                     evidenceChunkIds: ['c2'],
                   },
@@ -75,12 +75,12 @@ describe('NovelGraphExtractionService', () => {
     expect(payload.chapters.map((chapter) => chapter.ordinal)).toEqual([1, 2]);
     expect(payload.relations).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: 'NEXT_CHAPTER', chapterOrdinal: 2 }),
-        expect.objectContaining({ type: 'MENTIONED_IN', chapterOrdinal: 1 }),
-        expect.objectContaining({ type: 'RELATED_TO', kind: 'ALLY', chapterOrdinal: 2, evidenceChunkIds: ['c2'] }),
+        expect.objectContaining({ type: '下一章', chapterOrdinal: 2 }),
+        expect.objectContaining({ type: '提及于', chapterOrdinal: 1 }),
+        expect.objectContaining({ type: '相关', kind: '盟友', chapterOrdinal: 2, evidenceChunkIds: ['c2'] }),
       ]),
     );
-    expect(payload.relations).not.toEqual(expect.arrayContaining([expect.objectContaining({ kind: 'ENEMY' })]));
+    expect(payload.relations).not.toEqual(expect.arrayContaining([expect.objectContaining({ kind: '敌对' })]));
     expect(neo4jService.replaceNovelGraph).toHaveBeenCalledWith(payload);
     expect(documentRepository.update).toHaveBeenLastCalledWith(
       'doc-1',

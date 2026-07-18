@@ -40,7 +40,7 @@ describe('Neo4jService novel graph', () => {
           documentId: 'doc-1',
           sourceId: 'doc-1:novel',
           targetId: 'chapter-1',
-          type: 'HAS_CHAPTER',
+          type: '包含章节',
           confidence: 1,
           evidenceChunkIds: ['c1'],
         },
@@ -52,7 +52,7 @@ describe('Neo4jService novel graph', () => {
       documentId: 'doc-1',
     });
     expect(transaction.run).toHaveBeenCalledWith(
-      expect.stringContaining('CREATE (source)-[r:HAS_CHAPTER]'),
+      expect.stringContaining('CREATE (source)-[r:`包含章节`]'),
       expect.anything(),
     );
     expect(session.close).toHaveBeenCalled();
@@ -105,7 +105,7 @@ describe('Neo4jService novel graph', () => {
             documentId: 'doc-1',
             sourceId: 'doc-1:novel',
             targetId: 'chapter-1',
-            type: 'HAS_CHAPTER',
+            type: '包含章节',
             confidence: 1,
             evidenceChunkIds: ['c1'],
           },
@@ -126,8 +126,8 @@ describe('Neo4jService novel graph', () => {
                 ({
                   source: { documentId: 'doc-1', name: '甲' },
                   target: { documentId: 'doc-1', name: '乙' },
-                  relation: { kind: 'ALLY', confidence: 0.9, evidenceChunkIds: ['c1'], description: '结盟' },
-                  relationType: 'RELATED_TO',
+                  relation: { kind: '盟友', confidence: 0.9, evidenceChunkIds: ['c1'], description: '结盟' },
+                  relationType: '相关',
                   documentName: '测试小说',
                 })[key],
             ),
@@ -140,7 +140,7 @@ describe('Neo4jService novel graph', () => {
     (service as unknown as { driver: { session(): unknown } }).driver = { session: () => session };
 
     const result = await service.searchGraph(
-      { mode: 'graph', entities: ['甲'], relationshipKinds: ['ALLY'] },
+      { mode: 'graph', entities: ['甲'], relationshipKinds: ['盟友'] },
       ['doc-1'],
       5,
     );
@@ -149,7 +149,7 @@ describe('Neo4jService novel graph', () => {
       {
         documentId: 'doc-1',
         documentName: '测试小说',
-        statement: '甲 -[ALLY]-> 乙：结盟',
+        statement: '甲 -[盟友]-> 乙：结盟',
         evidenceChunkIds: ['c1'],
         confidence: 0.9,
       },
@@ -159,7 +159,7 @@ describe('Neo4jService novel graph', () => {
       expect.objectContaining({
         documentIds: ['doc-1'],
         entities: ['甲'],
-        relationshipKinds: ['ALLY'],
+        relationshipKinds: ['盟友'],
       }),
     );
   });

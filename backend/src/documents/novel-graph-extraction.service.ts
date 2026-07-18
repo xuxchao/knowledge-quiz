@@ -188,7 +188,7 @@ export class NovelGraphExtractionService {
         const normalizedInput = this.normalizeName(raw.name);
         const canonicalName = aliasMap.get(normalizedInput) ?? raw.name.trim();
         const normalizedName = this.normalizeName(canonicalName);
-        const key = raw.type === 'Event' ? `${normalizedName}:${window.chapterOrdinal}` : normalizedName;
+        const key = raw.type === '事件' ? `${normalizedName}:${window.chapterOrdinal}` : normalizedName;
         const id = this.stableId(document.id, raw.type, key);
         const evidenceChunkIds = this.validEvidence(raw.evidenceChunkIds, validChunkIds);
         if (!evidenceChunkIds.length) continue;
@@ -218,7 +218,7 @@ export class NovelGraphExtractionService {
           document.id,
           novelId,
           chapter.id,
-          'HAS_CHAPTER',
+          '包含章节',
           chapter.ordinal,
           chapter.evidenceChunkIds,
         ),
@@ -229,7 +229,7 @@ export class NovelGraphExtractionService {
             document.id,
             chapters[index - 1].id,
             chapter.id,
-            'NEXT_CHAPTER',
+            '下一章',
             chapter.ordinal,
             chapter.evidenceChunkIds,
           ),
@@ -240,7 +240,7 @@ export class NovelGraphExtractionService {
       const entity = entities.get(mention.entityId);
       const chapter = chapterMap.get(mention.chapterOrdinal);
       if (!entity || !chapter) continue;
-      const type = entity.type === 'Event' ? 'OCCURS_IN' : entity.type === 'Character' ? 'APPEARS_IN' : 'MENTIONED_IN';
+      const type = entity.type === '事件' ? '发生于' : entity.type === '角色' ? '出现于' : '提及于';
       relations.push(
         this.structuralRelation(
           document.id,
@@ -268,7 +268,7 @@ export class NovelGraphExtractionService {
           !this.isValidEndpointPair(raw.type, source.type, target.type)
         )
           continue;
-        const kind = raw.type === 'RELATED_TO' && this.isRelationKind(raw.kind) ? raw.kind : undefined;
+        const kind = raw.type === '相关' && this.isRelationKind(raw.kind) ? raw.kind : undefined;
         relations.push({
           id: this.stableId(
             document.id,
@@ -333,8 +333,8 @@ export class NovelGraphExtractionService {
   }
 
   private extractionPrompt(): string {
-    return `从小说章节中抽取有明确原文证据的实体和关系。实体type只能是Character、Location、Organization、Event。
-关系type只能是PARTICIPATES_IN、LOCATED_AT、MEMBER_OF、CAUSES、RELATED_TO；RELATED_TO的kind只能是KINSHIP、ROMANTIC、ALLY、ENEMY、MENTOR、RIVAL、OTHER。
+    return `从小说章节中抽取有明确原文证据的实体和关系。实体type只能是角色、地点、组织、事件。
+关系type只能是参与、位于、隶属于、导致、相关；相关的kind只能是亲属、情侣、盟友、敌对、师徒、竞争、其他。
 每个实体和关系必须包含evidenceChunkIds，且只能使用输入方括号中的切片ID。关系包含source、target、type、kind、description、confidence(0到1)。
 每个窗口最多输出12个实体和12条关系；只保留原文最明确、置信度最高的事实；description不超过60个汉字。
 输出 {"entities":[],"relations":[]}。不要推测未明确出现的事实。`;
@@ -352,7 +352,7 @@ export class NovelGraphExtractionService {
       [...entities.values()].find(
         (entity) =>
           entity.normalizedName === normalized &&
-          (entity.type !== 'Event' || entity.id.includes(this.hash(`${normalized}:${chapterOrdinal}`))),
+          (entity.type !== '事件' || entity.id.includes(this.hash(`${normalized}:${chapterOrdinal}`))),
       ) ?? [...entities.values()].find((entity) => entity.normalizedName === normalized)
     );
   }
@@ -400,15 +400,15 @@ export class NovelGraphExtractionService {
   }
 
   private isEntityType(value: unknown): value is NovelEntityType {
-    return ['Character', 'Location', 'Organization', 'Event'].includes(String(value));
+    return ['角色', '地点', '组织', '事件'].includes(String(value));
   }
 
   private isRelationType(value: unknown): value is NovelGraphRelation['type'] {
-    return ['PARTICIPATES_IN', 'LOCATED_AT', 'MEMBER_OF', 'CAUSES', 'RELATED_TO'].includes(String(value));
+    return ['参与', '位于', '隶属于', '导致', '相关'].includes(String(value));
   }
 
   private isRelationKind(value: unknown): value is CharacterRelationKind {
-    return ['KINSHIP', 'ROMANTIC', 'ALLY', 'ENEMY', 'MENTOR', 'RIVAL', 'OTHER'].includes(String(value));
+    return ['亲属', '情侣', '盟友', '敌对', '师徒', '竞争', '其他'].includes(String(value));
   }
 
   private isValidEndpointPair(
@@ -417,11 +417,11 @@ export class NovelGraphExtractionService {
     target: NovelEntityType,
   ): boolean {
     const expected: Partial<Record<NovelGraphRelation['type'], [NovelEntityType, NovelEntityType]>> = {
-      PARTICIPATES_IN: ['Character', 'Event'],
-      LOCATED_AT: ['Event', 'Location'],
-      MEMBER_OF: ['Character', 'Organization'],
-      CAUSES: ['Event', 'Event'],
-      RELATED_TO: ['Character', 'Character'],
+      参与: ['角色', '事件'],
+      位于: ['事件', '地点'],
+      隶属于: ['角色', '组织'],
+      导致: ['事件', '事件'],
+      相关: ['角色', '角色'],
     };
     const pair = expected[type];
     return Boolean(pair && pair[0] === source && pair[1] === target);

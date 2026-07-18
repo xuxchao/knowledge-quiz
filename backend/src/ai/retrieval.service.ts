@@ -59,7 +59,7 @@ export class RetrievalService {
   async analyzeNovelQuery(query: string, context?: ChatTraceContext): Promise<NovelQueryPlan> {
     try {
       const raw = await this.aiService.generateStructuredJson<Partial<NovelQueryPlan>>(
-        '判断小说问题需要文本检索、图谱检索还是混合检索。人物关系、章节顺序、首次出现、组织成员、事件参与或因果问题使用graph或hybrid；情节细节使用text。输出字段mode、entities、relationshipKinds、chapterOrdinal、novelTitle。',
+        '判断小说问题需要文本检索、图谱检索还是混合检索。人物关系、章节顺序、首次出现、组织成员、事件参与或因果问题使用graph或hybrid；情节细节使用text。relationshipKinds只能从【包含章节、下一章、出现于、发生于、提及于、参与、位于、隶属于、导致、相关、亲属、情侣、盟友、敌对、师徒、竞争、其他】中选择。输出字段mode、entities、relationshipKinds、chapterOrdinal、novelTitle。',
         query,
         'rag.novel-query-plan',
         undefined,
@@ -71,7 +71,7 @@ export class RetrievalService {
         mode,
         entities: this.stringArray(raw.entities).slice(0, 10),
         relationshipKinds: this.stringArray(raw.relationshipKinds)
-          .map((value) => value.toUpperCase())
+          .map((value) => this.normalizeRelationshipKind(value))
           .slice(0, 10),
         chapterOrdinal: Number.isInteger(chapterOrdinal) && chapterOrdinal > 0 ? chapterOrdinal : undefined,
         novelTitle: typeof raw.novelTitle === 'string' && raw.novelTitle.trim() ? raw.novelTitle.trim() : undefined,
@@ -267,5 +267,29 @@ export class RetrievalService {
     return Array.isArray(value)
       ? value.filter((item): item is string => typeof item === 'string' && Boolean(item.trim()))
       : [];
+  }
+
+  // 将 AI 可能输出的英文关系类型/种类归一化为中文，兼容旧模型习惯；中文输入原样返回。
+  private normalizeRelationshipKind(value: string): string {
+    const map: Record<string, string> = {
+      HAS_CHAPTER: '包含章节',
+      NEXT_CHAPTER: '下一章',
+      APPEARS_IN: '出现于',
+      OCCURS_IN: '发生于',
+      MENTIONED_IN: '提及于',
+      PARTICIPATES_IN: '参与',
+      LOCATED_AT: '位于',
+      MEMBER_OF: '隶属于',
+      CAUSES: '导致',
+      RELATED_TO: '相关',
+      KINSHIP: '亲属',
+      ROMANTIC: '情侣',
+      ALLY: '盟友',
+      ENEMY: '敌对',
+      MENTOR: '师徒',
+      RIVAL: '竞争',
+      OTHER: '其他',
+    };
+    return map[value.toUpperCase()] ?? value;
   }
 }

@@ -39,18 +39,47 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   async ensureSchema(): Promise<void> {
     const session = this.driver.session();
     try {
-      for (const label of ['Novel', 'Chapter', 'Character', 'Location', 'Organization', 'Event']) {
+      // 历史英文 Label 约束/索引迁移：中文 Label 使用 graph_ 前缀的新命名，避免与历史同名对象冲突；
+      // 此处幂等清理旧命名对象（首次迁移后这些名称不再存在，DROP IF EXISTS 为空操作）。
+      const legacyNames = [
+        'novel_id',
+        'chapter_id',
+        'character_id',
+        'location_id',
+        'organization_id',
+        'event_id',
+        'character_document_name',
+        'location_document_name',
+        'organization_document_name',
+        'event_document_name',
+        'chapter_document_ordinal',
+      ];
+      for (const name of legacyNames) {
+        await session.run(`DROP CONSTRAINT ${name} IF EXISTS`);
+        await session.run(`DROP INDEX ${name} IF EXISTS`);
+      }
+
+      const labelKeys: Record<string, string> = {
+        小说: 'novel',
+        章节: 'chapter',
+        角色: 'character',
+        地点: 'location',
+        组织: 'organization',
+        事件: 'event',
+      };
+      const labels = ['小说', '章节', '角色', '地点', '组织', '事件'] as const;
+      for (const label of labels) {
         await session.run(
-          `CREATE CONSTRAINT ${label.toLowerCase()}_id IF NOT EXISTS FOR (n:${label}) REQUIRE n.id IS UNIQUE`,
+          `CREATE CONSTRAINT graph_${labelKeys[label]}_id IF NOT EXISTS FOR (n:\`${label}\`) REQUIRE n.id IS UNIQUE`,
         );
       }
-      for (const label of ['Character', 'Location', 'Organization', 'Event']) {
+      for (const label of ['角色', '地点', '组织', '事件'] as const) {
         await session.run(
-          `CREATE INDEX ${label.toLowerCase()}_document_name IF NOT EXISTS FOR (n:${label}) ON (n.documentId, n.normalizedName)`,
+          `CREATE INDEX graph_${labelKeys[label]}_document_name IF NOT EXISTS FOR (n:\`${label}\`) ON (n.documentId, n.normalizedName)`,
         );
       }
       await session.run(
-        'CREATE INDEX chapter_document_ordinal IF NOT EXISTS FOR (n:Chapter) ON (n.documentId, n.ordinal)',
+        'CREATE INDEX graph_chapter_document_ordinal IF NOT EXISTS FOR (n:`章节`) ON (n.documentId, n.ordinal)',
       );
     } finally {
       await session.close();
@@ -65,13 +94,13 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
         await transaction.run('MATCH (n {documentId: $documentId}) DETACH DELETE n', {
           documentId: payload.novel.documentId,
         });
-        await transaction.run('CREATE (n:Novel) SET n = $properties', { properties: payload.novel });
-        await transaction.run('UNWIND $rows AS row CREATE (n:Chapter) SET n = row', { rows: payload.chapters });
-        for (const label of ['Character', 'Location', 'Organization', 'Event'] as const) {
+        await transaction.run('CREATE (n:`小说`) SET n = $properties', { properties: payload.novel });
+        await transaction.run('UNWIND $rows AS row CREATE (n:`章节`) SET n = row', { rows: payload.chapters });
+        for (const label of ['角色', '地点', '组织', '事件'] as const) {
           const rows = payload.entities
             .filter((entity) => entity.type === label)
             .map((entity) => this.entityProperties(entity));
-          if (rows.length) await transaction.run(`UNWIND $rows AS row CREATE (n:${label}) SET n = row`, { rows });
+          if (rows.length) await transaction.run(`UNWIND $rows AS row CREATE (n:\`${label}\`) SET n = row`, { rows });
         }
         for (const type of this.relationTypes()) {
           const rows = payload.relations
@@ -86,7 +115,7 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
             `
               UNWIND $rows AS row
               MATCH (source {id: row.sourceId}), (target {id: row.targetId})
-              CREATE (source)-[r:${type}]->(target)
+              CREATE (source)-[r:\`${type}\`]->(target)
               SET r = row
               REMOVE r.sourceId, r.targetId
             `,
@@ -128,7 +157,7 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
       const result = await session.run(
         `
           MATCH (source)-[relation]->(target)
-          MATCH (novel:Novel {documentId: source.documentId})
+          MATCH (novel:\`小说\` {documentId: source.documentId})
           WHERE source.documentId = target.documentId
             AND (size($documentIds) = 0 OR source.documentId IN $documentIds)
             AND (
@@ -217,18 +246,7 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   }
 
   private relationTypes(): NovelGraphRelation['type'][] {
-    return [
-      'HAS_CHAPTER',
-      'NEXT_CHAPTER',
-      'APPEARS_IN',
-      'OCCURS_IN',
-      'MENTIONED_IN',
-      'PARTICIPATES_IN',
-      'LOCATED_AT',
-      'MEMBER_OF',
-      'CAUSES',
-      'RELATED_TO',
-    ];
+    return ['包含章节', '下一章', '出现于', '发生于', '提及于', '参与', '位于', '隶属于', '导致', '相关'];
   }
 
   private entityProperties(entity: NovelGraphEntity): Record<string, unknown> {

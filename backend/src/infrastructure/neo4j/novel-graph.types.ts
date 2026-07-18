@@ -1,6 +1,8 @@
-export type NovelEntityType = 'Character' | 'Location' | 'Organization' | 'Event';
+// Neo4j 节点 Label 与关系 Type 均使用中文标识符，Cypher 中需用反引号包裹。
+// 约束名 / 索引名保留英文（见 LABEL_KEYS 映射），避免 Neo4j 元数据命名问题。
+export type NovelEntityType = '角色' | '地点' | '组织' | '事件';
 
-export type CharacterRelationKind = 'KINSHIP' | 'ROMANTIC' | 'ALLY' | 'ENEMY' | 'MENTOR' | 'RIVAL' | 'OTHER';
+export type CharacterRelationKind = '亲属' | '情侣' | '盟友' | '敌对' | '师徒' | '竞争' | '其他';
 
 export interface NovelGraphEntity {
   id: string;
@@ -26,17 +28,7 @@ export interface NovelGraphRelation {
   documentId: string;
   sourceId: string;
   targetId: string;
-  type:
-    | 'HAS_CHAPTER'
-    | 'NEXT_CHAPTER'
-    | 'APPEARS_IN'
-    | 'OCCURS_IN'
-    | 'MENTIONED_IN'
-    | 'PARTICIPATES_IN'
-    | 'LOCATED_AT'
-    | 'MEMBER_OF'
-    | 'CAUSES'
-    | 'RELATED_TO';
+  type: '包含章节' | '下一章' | '出现于' | '发生于' | '提及于' | '参与' | '位于' | '隶属于' | '导致' | '相关';
   kind?: CharacterRelationKind;
   description?: string;
   chapterOrdinal?: number;

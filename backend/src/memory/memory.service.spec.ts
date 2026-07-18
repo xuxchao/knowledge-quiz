@@ -14,7 +14,7 @@ describe('MemoryService', () => {
       deleteConversationMemories: jest.fn().mockResolvedValue(undefined),
     } as unknown as jest.Mocked<Mem0Service>;
     service = new MemoryService(mem0Service, {
-      get: jest.fn((key: string, defaultValue?: string) => key === 'MEM0_ENABLED' ? 'true' : defaultValue),
+      get: jest.fn((key: string, defaultValue?: string) => (key === 'MEM0_ENABLED' ? 'true' : defaultValue)),
     } as unknown as ConfigService);
   });
 
@@ -86,7 +86,7 @@ describe('MemoryService', () => {
 
     beforeEach(() => {
       disabledService = new MemoryService(mem0Service, {
-        get: jest.fn((key: string, defaultValue?: string) => key === 'MEM0_ENABLED' ? 'false' : defaultValue),
+        get: jest.fn((key: string, defaultValue?: string) => (key === 'MEM0_ENABLED' ? 'false' : defaultValue)),
       } as unknown as ConfigService);
     });
 

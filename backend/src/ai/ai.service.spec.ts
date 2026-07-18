@@ -132,7 +132,7 @@ describe('AiService', () => {
     const langfuseService = createLangfuseService();
     langfuseService.getLangChainCallbacks.mockReturnValue([callback] as never);
 
-    const service = new AiService(createConfigService(), langfuseService as never);
+    const service = new AiService(createConfigService(), langfuseService);
     service.onModuleInit();
 
     expect(MockedChatOpenAI).toHaveBeenCalledTimes(4);
@@ -146,7 +146,7 @@ describe('AiService', () => {
     MockedChatOpenAI.mockImplementation(() => ({}) as never);
     MockedOpenAIEmbeddings.mockImplementation(() => embeddings as never);
     const langfuseService = createLangfuseService();
-    const service = new AiService(createConfigService(), langfuseService as never);
+    const service = new AiService(createConfigService(), langfuseService);
     service.onModuleInit();
 
     await expect(service.generateEmbedding('正文')).resolves.toEqual([0.1, 0.2, 0.3]);
@@ -175,7 +175,7 @@ describe('AiService', () => {
     MockedChatOpenAI.mockImplementation(() => ({}) as never);
     MockedOpenAIEmbeddings.mockImplementation(() => ({}) as never);
     const langfuseService = createLangfuseService();
-    const service = new AiService(createConfigService(), langfuseService as never);
+    const service = new AiService(createConfigService(), langfuseService);
     service.onModuleInit();
 
     await expect(service.rerank('问题', ['文档一', '文档二'])).resolves.toEqual([{ index: 1, score: 0.93 }]);
@@ -193,7 +193,7 @@ describe('AiService', () => {
 });
 
 const createService = (): AiService => {
-  const service = new AiService(createConfigService(), createLangfuseService() as never);
+  const service = new AiService(createConfigService(), createLangfuseService());
   service.onModuleInit();
   return service;
 };

@@ -159,9 +159,9 @@ describe('LangfuseService', () => {
       mask: (params: { data: unknown }) => unknown;
     };
 
-    expect(
-      processorOptions.mask({ data: { url: 'data:image/png;base64,QUJDRA==' } }),
-    ).toEqual({ url: '[媒体内容已脱敏 mime=image/png base64Chars=8]' });
+    expect(processorOptions.mask({ data: { url: 'data:image/png;base64,QUJDRA==' } })).toEqual({
+      url: '[媒体内容已脱敏 mime=image/png base64Chars=8]',
+    });
   });
 
   it('should execute the operation once when tracing fails before the operation starts', async () => {
@@ -180,9 +180,11 @@ describe('LangfuseService', () => {
     const service = createEnabledService();
     service.onModuleInit();
     const operation = jest.fn().mockResolvedValue('result');
-    observation.update.mockImplementationOnce(() => undefined).mockImplementationOnce(() => {
-      throw new Error('export failed');
-    });
+    observation.update
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => {
+        throw new Error('export failed');
+      });
 
     await expect(
       service.observeGeneration('test.generation', { attributes: { input: 'input' } }, operation),

@@ -3,7 +3,13 @@ import { ConfigService } from '@nestjs/config';
 import { CallbackHandler } from '@langfuse/langchain';
 import { LangfuseClient } from '@langfuse/client';
 import { LangfuseSpanProcessor } from '@langfuse/otel';
-import { propagateAttributes, startActiveObservation, type LangfuseGenerationAttributes } from '@langfuse/tracing';
+import {
+  propagateAttributes,
+  startActiveObservation,
+  type LangfuseGeneration,
+  type LangfuseGenerationAttributes,
+  type LangfuseEmbedding,
+} from '@langfuse/tracing';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import type { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import { LoggerService, LogServiceCall } from '../../common/logger';
@@ -179,26 +185,28 @@ export class LangfuseService implements OnModuleInit, OnModuleDestroy {
     let operationError: unknown;
 
     try {
-      await this.withTraceContext(options.context, () =>
-        startActiveObservation(
-          name,
-          async (observation) => {
-            observation.update(options.attributes);
-            operationStarted = true;
-            try {
-              result = await operation();
-              operationCompleted = true;
-            } catch (error: unknown) {
-              operationFailed = true;
-              operationError = error;
-              throw error;
-            }
-            observation.update({ output: summarizeOutput(result) });
-            return result;
-          },
-          { asType },
-        ),
-      );
+      await this.withTraceContext(options.context, () => {
+        const runInObservation = async (observation: LangfuseGeneration | LangfuseEmbedding) => {
+          observation.update(options.attributes);
+          operationStarted = true;
+          try {
+            result = await operation();
+            operationCompleted = true;
+          } catch (error: unknown) {
+            operationFailed = true;
+            operationError = error;
+            throw error;
+          }
+          observation.update({ output: summarizeOutput(result) });
+          return result;
+        };
+        // startActiveObservation uses per-literal overloads; branch so each
+        // call site passes a concrete string literal that resolves the overload.
+        if (asType === 'generation') {
+          return startActiveObservation(name, runInObservation, { asType: 'generation' });
+        }
+        return startActiveObservation(name, runInObservation, { asType: 'embedding' });
+      });
     } catch (error: unknown) {
       if (operationFailed) throw operationError;
       this.logLangfuseError(`Langfuse观测失败，业务调用继续执行 - ${name}`, error);

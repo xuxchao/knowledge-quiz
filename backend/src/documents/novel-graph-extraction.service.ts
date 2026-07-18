@@ -14,6 +14,9 @@ import {
   NovelGraphEntity,
   NovelGraphPayload,
   NovelGraphRelation,
+  SEMANTIC_ENDPOINT_PAIRS,
+  SEMANTIC_RELATION_TYPES,
+  SemanticRelationType,
 } from '../infrastructure/neo4j/novel-graph.types';
 
 interface RawEntity {
@@ -255,31 +258,38 @@ export class NovelGraphExtractionService {
 
     for (const window of extracted) {
       for (const raw of window.relations) {
-        if (!this.isRelationType(raw.type)) continue;
+        if (!this.isSemanticRelationType(raw.type)) continue;
         const confidence = Number(raw.confidence ?? 0);
         const evidenceChunkIds = this.validEvidence(raw.evidenceChunkIds, validChunkIds);
         if (confidence < this.minConfidence || !evidenceChunkIds.length || !raw.source || !raw.target) continue;
         const source = this.resolveEntity(entities, aliasMap, raw.source, window.chapterOrdinal);
         const target = this.resolveEntity(entities, aliasMap, raw.target, window.chapterOrdinal);
-        if (
-          !source ||
-          !target ||
-          source.documentId !== target.documentId ||
-          !this.isValidEndpointPair(raw.type, source.type, target.type)
-        )
-          continue;
-        const kind = raw.type === '相关' && this.isRelationKind(raw.kind) ? raw.kind : undefined;
+        if (!source || !target || source.documentId !== target.documentId) continue;
+
+        let effectiveType: SemanticRelationType;
+        let effectiveKind: CharacterRelationKind | undefined;
+
+        if (this.isValidEndpointPair(raw.type, source.type, target.type)) {
+          effectiveType = raw.type;
+          if (effectiveType === '相关') {
+            effectiveKind = this.resolveRelevantKind(source.type, target.type, raw.kind);
+          }
+        } else {
+          effectiveType = '相关';
+          effectiveKind = this.resolveRelevantKind(source.type, target.type, undefined) ?? '其他';
+        }
+
         relations.push({
           id: this.stableId(
             document.id,
-            raw.type,
-            `${source.id}|${target.id}|${window.chapterOrdinal}|${kind ?? ''}|${raw.description ?? ''}`,
+            effectiveType,
+            `${source.id}|${target.id}|${window.chapterOrdinal}|${effectiveKind ?? ''}|${raw.description ?? ''}`,
           ),
           documentId: document.id,
           sourceId: source.id,
           targetId: target.id,
-          type: raw.type,
-          kind,
+          type: effectiveType,
+          kind: effectiveKind,
           description: raw.description,
           chapterOrdinal: window.chapterOrdinal,
           confidence,
@@ -334,8 +344,13 @@ export class NovelGraphExtractionService {
 
   private extractionPrompt(): string {
     return `从小说章节中抽取有明确原文证据的实体和关系。实体type只能是角色、地点、组织、事件。
-关系type只能是参与、位于、隶属于、导致、相关；相关的kind只能是亲属、情侣、盟友、敌对、师徒、竞争、其他。
-每个实体和关系必须包含evidenceChunkIds，且只能使用输入方括号中的切片ID。关系包含source、target、type、kind、description、confidence(0到1)。
+关系type只能是参与、位于、隶属于、导致、相关。
+  参与：角色或组织参与事件（如「霍临渊参与西山之战」）；
+  位于：角色、事件或组织位于某地点（如「幽蕤位于乌椟国」）；
+  隶属于：角色或组织隶属于组织（如「霍临渊隶属于暗影殿」）；
+  导致：事件导致另一事件或影响角色（如「西山之战导致王后受伤」）；
+  相关：兜底类型，任意两实体间的其他关系；角色间需带kind（亲属、情侣、盟友、敌对、师徒、竞争、其他），组织间也允许kind（盟友、敌对、竞争、其他）。
+每个实体和关系必须包含evidenceChunkIds，且只能使用输入方括号中的切片ID。关系字段：source、target、type、kind、description、confidence(0到1)。
 每个窗口最多输出12个实体和12条关系；只保留原文最明确、置信度最高的事实；description不超过60个汉字。
 输出 {"entities":[],"relations":[]}。不要推测未明确出现的事实。`;
   }
@@ -403,27 +418,38 @@ export class NovelGraphExtractionService {
     return ['角色', '地点', '组织', '事件'].includes(String(value));
   }
 
-  private isRelationType(value: unknown): value is NovelGraphRelation['type'] {
-    return ['参与', '位于', '隶属于', '导致', '相关'].includes(String(value));
+  private isSemanticRelationType(value: unknown): value is SemanticRelationType {
+    return (SEMANTIC_RELATION_TYPES as readonly string[]).includes(String(value));
   }
 
   private isRelationKind(value: unknown): value is CharacterRelationKind {
     return ['亲属', '情侣', '盟友', '敌对', '师徒', '竞争', '其他'].includes(String(value));
   }
 
-  private isValidEndpointPair(
-    type: NovelGraphRelation['type'],
-    source: NovelEntityType,
-    target: NovelEntityType,
-  ): boolean {
-    const expected: Partial<Record<NovelGraphRelation['type'], [NovelEntityType, NovelEntityType]>> = {
-      参与: ['角色', '事件'],
-      位于: ['事件', '地点'],
-      隶属于: ['角色', '组织'],
-      导致: ['事件', '事件'],
-      相关: ['角色', '角色'],
-    };
-    const pair = expected[type];
-    return Boolean(pair && pair[0] === source && pair[1] === target);
+  private isValidEndpointPair(type: string, sourceType: NovelEntityType, targetType: NovelEntityType): boolean {
+    if (type === '相关') return true;
+    const pairs = SEMANTIC_ENDPOINT_PAIRS[type];
+    return pairs?.some(([s, t]) => s === sourceType && t === targetType) ?? false;
+  }
+
+  /**
+   * 为 相关 关系解析 kind。
+   * 角色↔角色：LLM 输出的 kind 经 isRelationKind 校验，不合法则默认 其他。
+   * 组织↔组织：仅允许 盟友/敌对/竞争/其他。
+   * 跨类型 相关：不携带 kind。
+   */
+  private resolveRelevantKind(
+    sourceType: NovelEntityType,
+    targetType: NovelEntityType,
+    kindHint?: unknown,
+  ): CharacterRelationKind | undefined {
+    const isCharPair = sourceType === '角色' && targetType === '角色';
+    const isOrgPair = sourceType === '组织' && targetType === '组织';
+    if (!isCharPair && !isOrgPair) return undefined;
+    const validKinds: CharacterRelationKind[] = isCharPair
+      ? ['亲属', '情侣', '盟友', '敌对', '师徒', '竞争', '其他']
+      : ['盟友', '敌对', '竞争', '其他'];
+    if (this.isRelationKind(kindHint) && validKinds.includes(kindHint)) return kindHint;
+    return '其他';
   }
 }

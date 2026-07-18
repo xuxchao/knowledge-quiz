@@ -9,6 +9,7 @@ import type {
   NovelGraphRelation,
   NovelQueryPlan,
 } from './novel-graph.types';
+import { SEMANTIC_RELATION_TYPES, STRUCTURAL_RELATION_TYPES } from './novel-graph.types';
 
 @Injectable()
 export class Neo4jService implements OnModuleInit, OnModuleDestroy {
@@ -246,7 +247,7 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   }
 
   private relationTypes(): NovelGraphRelation['type'][] {
-    return ['包含章节', '下一章', '出现于', '发生于', '提及于', '参与', '位于', '隶属于', '导致', '相关'];
+    return [...STRUCTURAL_RELATION_TYPES, ...SEMANTIC_RELATION_TYPES];
   }
 
   private entityProperties(entity: NovelGraphEntity): Record<string, unknown> {
